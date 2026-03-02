@@ -22,6 +22,14 @@ export default function Sidebar({ currentView, setView }) {
       ];
     }
 
+    if (user.rol === ROLES.OFICINA) {
+      return [
+        { id: 'dashboard', label: 'Dashboard', icon: 'home' },
+        ...baseItems,
+        { id: 'pipeline', label: 'Pipeline', icon: 'grid' },
+      ];
+    }
+
     return baseItems;
   };
 

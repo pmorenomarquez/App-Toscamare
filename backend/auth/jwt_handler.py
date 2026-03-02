@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from config import Config
 from functools import wraps
 from flask import jsonify, request
+from utils.error_handler import respuesta_error
 
 def generar_jwt(user_data):
     """
@@ -38,20 +39,20 @@ def requiere_admin(funcion):
         try:
             auth_token = token.split(' ')[1]
         except:
-            return jsonify({"error": "Formato de token no válido"}), 401
+            return respuesta_error("Formato de token no válido", 401)
         
         if not auth_token:
-            return jsonify({"error": "Token no proporcionado"}), 401
+            return respuesta_error("Token no proporcionado", 401)
         
         payload = verificar_jwt(auth_token)
         
         if not payload:
-            return jsonify({"error": "Token inválido"}), 401
+            return respuesta_error("Token inválido", 401)
         
         if payload['rol'] == 'admin':
             return funcion(*args, **kwargs)
         else:
-            return jsonify({"error": "No tienes permisos"}), 403
+            return respuesta_error("No tienes permisos", 403)
     
     return wrapper
         
@@ -63,15 +64,15 @@ def requiere_autenticacion(funcion):
         try:
             auth_token = token.split(' ')[1]
         except:
-            return jsonify({"error": "Formato de token no válido"}), 401
+            return respuesta_error("Formato de token no válido", 401)
         
         if not auth_token:
-            return jsonify({"error": "Token no proporcionado"}), 401
+            return respuesta_error("Token no proporcionado", 401)
         
         payload = verificar_jwt(auth_token)
         
         if not payload:
-            return jsonify({"error": "Token inválido"}), 401
+            return respuesta_error("Token inválido", 401)
         
         return funcion(*args, **kwargs)
         
@@ -89,20 +90,20 @@ def requiere_rol(roles_permitidos):
             try:
                 auth_token = token.split(' ')[1]
             except:
-                return jsonify({"error": "Formato de token no válido"}), 401
+                return respuesta_error("Formato de token no válido", 401)
             
             if not auth_token:
-                return jsonify({"error": "Token no proporcionado"}), 401
+                return respuesta_error("Token no proporcionado", 401)
             
             payload = verificar_jwt(auth_token)
             
             if not payload:
-                return jsonify({"error": "Token inválido"}), 401
+                return respuesta_error("Token inválido", 401)
             
             if payload.get('rol') in roles_permitidos:
                 return funcion(*args, **kwargs)
             else:
-                return jsonify({"error": "No tienes permisos para acceder a esta URL"}), 403
+                return respuesta_error("No tienes permisos para acceder a esta URL", 403)
             
         return wrapper
     return decorator

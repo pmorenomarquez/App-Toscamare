@@ -17,11 +17,13 @@ export default function PedidosView() {
   const [actionLoading, setActionLoading] = useState(null);
 
   const isAdmin = session.user.rol === ROLES.ADMIN;
+  const isOficina = session.user.rol === ROLES.OFICINA;
+  const isModerator = isAdmin || isOficina;
 
   const filtered = useMemo(() => {
     let list = pedidos;
-    // Admin can filter by estado; non-admin already receives filtered data from backend
-    if (isAdmin && filterEstado !== 'todos') {
+    // Admin/oficina can filter by estado; other roles receive filtered data from backend
+    if (isModerator && filterEstado !== 'todos') {
       list = list.filter(p => p.estado_actual === parseInt(filterEstado));
     }
     if (search) {
@@ -29,7 +31,7 @@ export default function PedidosView() {
       list = list.filter(p => p.codigo.toLowerCase().includes(q) || p.cliente.toLowerCase().includes(q));
     }
     return list;
-  }, [pedidos, filterEstado, search, isAdmin]);
+  }, [pedidos, filterEstado, search, isModerator]);
 
   const advanceOrder = async (pedidoId) => {
     const pedido = pedidos.find(p => p.id === pedidoId);
@@ -87,7 +89,7 @@ export default function PedidosView() {
               <SVG name="search" size={14} color="var(--text-4)" />
             </div>
           </div>
-          {isAdmin && <Select value={filterEstado} onChange={e => setFilterEstado(e.target.value)} options={[
+          {isModerator && <Select value={filterEstado} onChange={e => setFilterEstado(e.target.value)} options={[
             { value: 'todos', label: 'Todos los estados' }, ...Object.entries(ESTADOS).map(([k, v]) => ({ value: k, label: v.label }))
           ]} />}
         </div>
@@ -98,7 +100,7 @@ export default function PedidosView() {
 
       <p style={{ fontSize: 12, color: 'var(--text-4)', marginBottom: 14 }}>
         {filtered.length} pedido{filtered.length !== 1 ? 's' : ''}
-        {!isAdmin && (' — ' + (ROLE_META[session.user.rol]?.label || ''))}
+        {!isModerator && (' — ' + (ROLE_META[session.user.rol]?.label || ''))}
       </p>
 
       {filtered.length === 0 ? (

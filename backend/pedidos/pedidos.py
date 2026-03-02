@@ -2,6 +2,7 @@ from flask import Blueprint, jsonify, request, send_file
 from auth.jwt_handler import verificar_jwt
 from .pedidos_service import PedidosService
 from auth.jwt_handler import requiere_autenticacion, requiere_rol
+from utils.error_handler import respuesta_error
 
 
 pedidos_bp = Blueprint('pedidos', __name__, url_prefix='/api/pedidos')
@@ -19,22 +20,22 @@ def obtener_pedidos():
     auth_header = request.headers.get("Authorization")
 
     if not auth_header:
-        return jsonify({"error": "Token requerido"}), 401
+        return respuesta_error("Token requerido", 401)
 
     try:
         token = auth_header.split(" ")[1]
     except IndexError:
-        return jsonify({"error": "Formato de token inválido"}), 401
+        return respuesta_error("Formato de token inválido", 401)
 
     payload = verificar_jwt(token)
 
     if not payload:
-        return jsonify({"error": "Token inválido"}), 401
+        return respuesta_error("Token inválido", 401)
 
     rol_usuario = payload.get("rol")
 
     if not rol_usuario:
-        return jsonify({"error": "Rol no encontrado en el token"}), 403
+        return respuesta_error("Rol no encontrado en el token", 403)
 
     pedidos = service.obtener_por_rol(rol_usuario)
 
@@ -52,7 +53,7 @@ def obtener_pedido(id):
     resultado = service.obtener_por_id(str(id))
 
     if not resultado:
-        return jsonify({"error": "Pedido no encontrado"}), 404
+        return respuesta_error("Pedido no encontrado", 404)
 
     return jsonify(resultado), 200
 
@@ -66,20 +67,20 @@ def crear_pedido():
 
     auth_header = request.headers.get("Authorization")
     if not auth_header:
-        return jsonify({"error": "Token requerido"}), 401
+        return respuesta_error("Token requerido", 401)
 
     try:
         token = auth_header.split(" ")[1]
     except IndexError:
-        return jsonify({"error": "Formato de token inválido"}), 401
+        return respuesta_error("Formato de token inválido", 401)
 
     payload = verificar_jwt(token)
 
     if not payload:
-        return jsonify({"error": "Token inválido"}), 401
+        return respuesta_error("Token inválido", 401)
 
     if payload.get("rol") != "oficina":
-        return jsonify({"error": "No autorizado"}), 403
+        return respuesta_error("No autorizado", 403)
 
     # DEBUG: Ver qué se está recibiendo
     print(f"[DEBUG] request.form keys: {list(request.form.keys())}")
@@ -93,10 +94,10 @@ def crear_pedido():
     print(f"[DEBUG] archivo_pdf: {archivo_pdf is not None}")
 
     if not cliente_nombre:
-        return jsonify({"error": "cliente_nombre es requerido"}), 400
+        return respuesta_error("cliente_nombre es requerido", 400)
     
     if not archivo_pdf:
-        return jsonify({"error": "PDF es requerido"}), 400
+        return respuesta_error("PDF es requerido", 400)
 
     # Extraer usuario_responsable_id del JWT
     usuario_responsable_id = payload.get("user_id")
@@ -157,24 +158,24 @@ def actualizar_estado_pedido(id):
     auth_header = request.headers.get("Authorization")
 
     if not auth_header:
-        return jsonify({"error": "Token requerido"}), 401
+        return respuesta_error("Token requerido", 401)
 
     try:
         token = auth_header.split(" ")[1]
     except IndexError:
-        return jsonify({"error": "Formato de token inválido"}), 401
+        return respuesta_error("Formato de token inválido", 401)
 
     payload = verificar_jwt(token)
 
     if not payload:
-        return jsonify({"error": "Token inválido"}), 401
+        return respuesta_error("Token inválido", 401)
 
     rol_usuario = payload.get("rol")
 
     resultado = service.actualizar_estado(str(id), rol_usuario)
 
     if "error" in resultado:
-        return jsonify(resultado), 400
+        return respuesta_error(resultado["error"], 400)
 
     return jsonify(resultado), 200
 
@@ -188,22 +189,22 @@ def obtener_pdf(id):
 
     auth_header = request.headers.get("Authorization")
     if not auth_header:
-        return jsonify({"error": "Token requerido"}), 401
+        return respuesta_error("Token requerido", 401)
 
     try:
         token = auth_header.split(" ")[1]
     except IndexError:
-        return jsonify({"error": "Formato de token inválido"}), 401
+        return respuesta_error("Formato de token inválido", 401)
 
     payload = verificar_jwt(token)
 
     if not payload:
-        return jsonify({"error": "Token inválido"}), 401
+        return respuesta_error("Token inválido", 401)
 
     resultado = service.obtener_pdf_firmado(str(id))
 
     if "error" in resultado:
-        return jsonify(resultado), 404
+        return respuesta_error(resultado["error"], 404)
 
     return jsonify(resultado), 200
 

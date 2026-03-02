@@ -6,14 +6,13 @@ import { SVG, Btn, Badge } from '@/components/ui';
 
 export default function DashboardView({ setView }) {
   const { pedidos, session } = useContext(AppContext);
-  const isAdmin = session.user.rol === ROLES.ADMIN;
+  const isModerator = session.user.rol === ROLES.ADMIN || session.user.rol === ROLES.OFICINA;
 
   const stats = Object.entries(ESTADOS).map(([e, cfg]) => ({
     estado: parseInt(e), ...cfg, count: pedidos.filter(p => p.estado_actual === parseInt(e)).length,
   }));
 
-  const myPedidos = isAdmin ? pedidos : pedidos.filter(p => {
-    if (session.user.rol === ROLES.OFICINA) return p.estado_actual === 3;
+  const myPedidos = isModerator ? pedidos : pedidos.filter(p => {
     return p.estado_actual === ROLE_META[session.user.rol].estadoVisible;
   });
 
