@@ -6,9 +6,11 @@ from auth.jwt_handler import generar_jwt, verificar_jwt
 from database.supabase_client import supabase
 from usuarios.usuarios import usuarios_bp
 from pedidos.pedidos import pedidos_bp
+from utils.error_handler import register_error_handlers, respuesta_error
 
 
 app = Flask(__name__)
+register_error_handlers(app)
 CORS(app, origins=[Config.FRONTEND_URL])
 
 app.register_blueprint(usuarios_bp)
@@ -27,12 +29,12 @@ def callback():
     result = manejar_callback()
     
     if 'error' in result:
-        return jsonify(result), 400
+        return respuesta_error(result['error'], 400)
     
     response = supabase.table('usuarios').select('*').eq('email', result['email']).execute()
     
     if not response.data or len(response.data) == 0:
-        return jsonify({"error": "Usuario no registrado"}), 403
+        return respuesta_error("Usuario no registrado", 403)
     
     usuario=response.data[0]
     
@@ -46,7 +48,7 @@ def verify_token():
     token = data.get('token')
     
     if not token:
-        return jsonify({"error": "Token no proporcionado"}), 400
+        return respuesta_error("Token no proporcionado", 400)
     
     payload = verificar_jwt(token)
     

@@ -12,10 +12,11 @@ def iniciar_login():
         'client_id': Config.CLIENT_ID,
         'redirect_uri': Config.REDIRECT_URI,
         'response_type': 'code',
-        'scope': 'openid profile email User.Read'
+        'scope': 'openid profile email User.Read',
+        'prompt': 'select_account'
     }
     
-    auth_url = f"{microsoft_auth_url}?client_id={params['client_id']}&redirect_uri={params['redirect_uri']}&response_type={params['response_type']}&scope={params['scope']}"
+    auth_url = f"{microsoft_auth_url}?client_id={params['client_id']}&redirect_uri={params['redirect_uri']}&response_type={params['response_type']}&scope={params['scope']}&prompt={params['prompt']}"
     return redirect(auth_url)
 
 

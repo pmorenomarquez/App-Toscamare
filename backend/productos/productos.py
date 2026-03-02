@@ -13,6 +13,8 @@ from flask import request, jsonify, Blueprint
 from supabase import create_client, Client
 from dotenv import load_dotenv
 from auth.jwt_handler import requiere_autenticacion, requiere_rol
+from utils.error_handler import respuesta_error
+from utils.validators import validar_cantidad
 
 load_dotenv()
 
@@ -59,7 +61,7 @@ def listar_productos(pedido_id):
         return jsonify(response.data), 200
     
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return respuesta_error(str(e), 500)
 
 # 2. Añadir un producto a un pedido (POST). Solo el rol de oficina (controlado por Supabase RLS).
 @productos_bp.route('/api/pedido-productos', methods=['POST'])
@@ -76,6 +78,9 @@ def añadir_producto():
         #Datos enviados en el cuerpo de la solicitud (JSON)
         datos = request.json
 
+        if not validar_cantidad(datos['cantidad']):
+            return respuesta_error("Cantidad inválida. Debe ser mayor que 0", 400)
+            
         # Insertamos los datos en la tabla 'pedido_productos'
         nueva_fila = {
             "pedido_id": datos['pedido_id'],
@@ -87,7 +92,7 @@ def añadir_producto():
         #Devolvemos la nueva fila insertada en formato JSON
         return jsonify(response.data), 201
     except Exception as e:
-        return jsonify({"error": str(e)}), 400
+        return respuesta_error(str(e), 400)
 
 
 
@@ -107,6 +112,9 @@ def actualizar_producto(producto_id):
         #Datos enviados en el cuerpo de la solicitud (JSON)
         datos = request.json
 
+        if datos.get("cantidad") and not validar_cantidad(datos.get("cantidad")):
+            return respuesta_error("Cantidad inválida. Debe ser mayor que 0", 400)
+
         # Actualizamos los datos en la tabla 'pedido_productos'
         response = sb.table("pedido_productos").update({
             "nombre_producto": datos.get("nombre_producto"),
@@ -116,7 +124,7 @@ def actualizar_producto(producto_id):
         #Devolvemos la fila actualizada en formato JSON
         return jsonify(response.data), 200
     except Exception as e:
-        return jsonify({"error": str(e)}), 400
+        return respuesta_error(str(e), 400)
 
 
 # Eliminar un producto de un pedido (DELETE). Solo el rol de oficina (controlado por Supabase RLS).
@@ -136,9 +144,9 @@ def eliminar_producto(producto_id):
 
         # Si no se eliminó ningún registro, significa que el producto no existe o ya fue eliminado. Devolvemos un mensaje de error.
         if not response.data:
-            return jsonify({"message": "Producto no encontrado o ya eliminado"}), 404
+            return respuesta_error("Producto no encontrado o ya eliminado", 404)
         
         #En el caso de éxito, devolvemos un mensaje de confirmación
         return jsonify({"message": "Producto eliminado correctamente"}), 200
     except Exception as e:
-        return jsonify({"error": str(e)}), 400
+        return respuesta_error(str(e), 400)
