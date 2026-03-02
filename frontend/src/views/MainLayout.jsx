@@ -10,7 +10,7 @@ import UsuariosView from './UsuariosView';
 
 const VIEW_META = {
   dashboard: (u) => ({ title: 'Dashboard', subtitle: 'Bienvenido, ' + u.nombre }),
-  pedidos:   (u) => ({ title: 'Gestión de Pedidos', subtitle: u.rol === ROLES.ADMIN ? 'Todos los pedidos' : 'Vista de ' + ROLE_META[u.rol].label }),
+  pedidos:   (u) => ({ title: 'Gestión de Pedidos', subtitle: (u.rol === ROLES.ADMIN || u.rol === ROLES.OFICINA) ? 'Todos los pedidos' : 'Vista de ' + ROLE_META[u.rol].label }),
   pipeline:  ()  => ({ title: 'Pipeline', subtitle: 'Vista Kanban de todos los estados' }),
   usuarios:  ()  => ({ title: 'Gestión de Usuarios', subtitle: 'Administrar cuentas y roles' }),
 };
@@ -22,6 +22,7 @@ export default function MainLayout() {
 
   const canAccessView = (viewId) => {
     if (session.user.rol === ROLES.ADMIN) return true;
+    if (session.user.rol === ROLES.OFICINA) return viewId !== 'usuarios';
     return viewId === 'pedidos';
   };
 
@@ -37,11 +38,11 @@ export default function MainLayout() {
     <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-0)' }}>
       <Sidebar currentView={view} setView={handleSetView} />
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-        <Topbar title={meta.title} subtitle={meta.subtitle} />
+        <Topbar title={meta.title} subtitle={meta.subtitle} onNavigate={handleSetView} />
         <main style={{ flex: 1, overflowY: 'auto' }}>
-          {view === 'dashboard' && session.user.rol === ROLES.ADMIN && <DashboardView setView={handleSetView} />}
+          {view === 'dashboard' && (session.user.rol === ROLES.ADMIN || session.user.rol === ROLES.OFICINA) && <DashboardView setView={handleSetView} />}
           {view === 'pedidos'   && <PedidosView />}
-          {view === 'pipeline'  && session.user.rol === ROLES.ADMIN && <PipelineView />}
+          {view === 'pipeline'  && (session.user.rol === ROLES.ADMIN || session.user.rol === ROLES.OFICINA) && <PipelineView />}
           {view === 'usuarios'  && session.user.rol === ROLES.ADMIN && <UsuariosView />}
         </main>
       </div>

@@ -53,7 +53,7 @@ class PedidosService:
 
         rol_norm = rol.strip().lower()
 
-        if rol_norm == "admin":
+        if rol_norm in ("admin", "oficina"):
             return self.obtener_todos()
 
         if rol_norm not in self.ESTADOS:
