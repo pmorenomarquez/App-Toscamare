@@ -61,6 +61,42 @@ class PedidosService:
 
         estado_num = self.ESTADOS[rol_norm]
         return self.obtener_por_estado(estado_num)
+
+    def obtener_por_id(self, pedido_id):
+        """
+        Obtiene un pedido por su ID y adjunta los productos relacionados.
+        Usa el cliente admin para asegurar que se recuperan los productos
+        independientemente de las políticas RLS (la ruta que llama a este
+        método ya está protegida por autenticación).
+        """
+        pedido = (
+            supabase
+            .table("pedidos")
+            .select("*")
+            .eq("id", pedido_id)
+            .maybe_single()
+            .execute()
+        )
+
+        if not pedido.data:
+            return None
+
+        # Obtener productos asociados usando el cliente admin para evitar RLS
+        try:
+            productos_resp = (
+                supabase_admin
+                .table("pedido_productos")
+                .select("*")
+                .eq("pedido_id", pedido_id)
+                .execute()
+            )
+            productos = productos_resp.data or []
+        except Exception:
+            productos = []
+
+        resultado = pedido.data
+        resultado["productos"] = productos
+        return resultado
     
     # ===============================================
     # CREAR Y SUBIR PDF

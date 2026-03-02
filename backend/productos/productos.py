@@ -47,19 +47,26 @@ def get_supabase_client(token):
 @requiere_autenticacion
 def listar_productos(pedido_id):
     try:
-
         #Obtenemos el token de Authorization
-        token = request.headers.get("Authorization").replace("Bearer ", "")
+        auth_header = request.headers.get("Authorization")
+        token = auth_header.replace("Bearer ", "") if auth_header else ""
 
-        #Creamos el cliente Supabase con ese token
-        sb = get_supabase_client(token)
+        #Decodificar el JWT para revisar el rol
+        from auth.jwt_handler import verificar_jwt
+        payload = verificar_jwt(token)
+        rol = payload.get("rol") if payload else None
+
+        #Si el usuario es admin usamos el cliente global (service key) para saltar RLS
+        if rol == "admin":
+            sb = supabase  # servicio con clave de administrador
+        else:
+            sb = get_supabase_client(token)
 
         # Consultamos la tabla 'pedido_productos', filtrando por el pedido correspondiente
         response = sb.table("pedido_productos").select("*").eq("pedido_id", pedido_id).execute()
 
-        #Devolvemos la lista d eproductos en formato JSON
+        #Devolvemos la lista de productos en formato JSON
         return jsonify(response.data), 200
-    
     except Exception as e:
         return respuesta_error(str(e), 500)
 

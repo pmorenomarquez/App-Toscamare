@@ -209,7 +209,8 @@ def obtener_pdf(id):
     return jsonify(resultado), 200
 
 @pedidos_bp.route('/<uuid:id>/export/excel', methods=['GET'])
-@requiere_rol("oficina")
+# oficina y admin pueden exportar
+@requiere_rol(["oficina", "admin"])
 def exportar_pedido_excel(id):
     archivo_excel = service.exportar_a_excel(str(id))
     
