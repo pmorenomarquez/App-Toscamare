@@ -159,7 +159,7 @@ export function advancePedido(id) {
 }
 
 export function rollbackPedido(id) {
-  return request('/pedidos/' + id + '/estado/retroceder', { method: 'PATCH' });
+  return request("/pedidos/" + id + "/estado/retroceder", { method: "PATCH" });
 }
 
 export async function exportExcel(id) {
@@ -237,5 +237,12 @@ export function updateUsuario(id, data) {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
+  });
+}
+
+// AÑADE ESTA FUNCIÓN AQUÍ ABAJO:
+export function deleteUsuario(id) {
+  return request("/usuarios/" + id, {
+    method: "DELETE",
   });
 }

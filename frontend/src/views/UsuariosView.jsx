@@ -139,6 +139,11 @@ export default function UsuariosView() {
   const [showCreate, setShowCreate] = useState(false);
   const [activeMenuId, setActiveMenuId] = useState(null);
 
+  // --- ESTADOS DE EDICIÓN (NUEVOS) ---
+  const [editingUser, setEditingUser] = useState(null);
+  const [editMode, setEditMode] = useState(null);
+  const [editValue, setEditValue] = useState("");
+
   // --- ESTADOS DE FILTRADO Y BUSQUEDA ---
   const [search, setSearch] = useState("");
   const [selectedRoles, setSelectedRoles] = useState([]);
@@ -154,7 +159,6 @@ export default function UsuariosView() {
   const processedUsers = useMemo(() => {
     let result = [...usuarios];
 
-    // 1. Filtro por búsqueda de texto
     if (search) {
       const s = search.toLowerCase();
       result = result.filter(
@@ -164,12 +168,10 @@ export default function UsuariosView() {
       );
     }
 
-    // 2. Filtro por roles (Multiselección)
     if (selectedRoles.length > 0) {
       result = result.filter((u) => selectedRoles.includes(u.rol));
     }
 
-    // 3. Ordenamiento
     result.sort((a, b) => {
       if (sortBy === "name-asc") return a.nombre.localeCompare(b.nombre);
       if (sortBy === "name-desc") return b.nombre.localeCompare(a.nombre);
@@ -195,6 +197,45 @@ export default function UsuariosView() {
       showToast("Usuario creado");
       setShowCreate(false);
       setForm({ nombre: "", email: "", rol: "almacen" });
+      loadUsuarios();
+    } catch (e) {
+      showToast(e.message, "error");
+    }
+  };
+
+  // --- NUEVAS FUNCIONES DE EDICIÓN ---
+  const handleAction = async (type, user) => {
+    if (type === "delete") {
+      if (window.confirm(`¿Seguro que quieres eliminar a ${user.nombre}?`)) {
+        try {
+          await api.deleteUsuario(user.id); // Esta la conectaremos luego
+          showToast("Usuario eliminado");
+          loadUsuarios();
+        } catch (e) {
+          showToast(e.message, "error");
+        }
+      }
+      return;
+    }
+
+    setEditingUser(user);
+    setEditMode(type);
+    if (type === "edit-name") setEditValue(user.nombre);
+    if (type === "edit-email") setEditValue(user.email);
+    if (type === "edit-role") setEditValue(user.rol);
+  };
+
+  const saveEdit = async () => {
+    if (!editValue) return showToast("El campo no puede estar vacío", "error");
+    try {
+      let data = {};
+      if (editMode === "edit-name") data.nombre = editValue;
+      if (editMode === "edit-email") data.email = editValue;
+      if (editMode === "edit-role") data.rol = editValue;
+
+      await api.updateUsuario(editingUser.id, data);
+      showToast("Actualizado correctamente");
+      setEditingUser(null);
       loadUsuarios();
     } catch (e) {
       showToast(e.message, "error");
@@ -231,7 +272,7 @@ export default function UsuariosView() {
         </Btn>
       </div>
 
-      {/* BARRA DE HERRAMIENTAS (Buscador y Filtros) */}
+      {/* BARRA DE HERRAMIENTAS */}
       <div
         style={{
           background: "var(--bg-2)",
@@ -252,7 +293,6 @@ export default function UsuariosView() {
             flexWrap: "wrap",
           }}
         >
-          {/* BUSCADOR */}
           <div style={{ flex: 1, minWidth: 280, position: "relative" }}>
             <div
               style={{
@@ -274,7 +314,6 @@ export default function UsuariosView() {
             />
           </div>
 
-          {/* ORDENAMIENTO */}
           <div style={{ minWidth: 200 }}>
             <Select
               value={sortBy}
@@ -288,7 +327,6 @@ export default function UsuariosView() {
           </div>
         </div>
 
-        {/* FILTROS DE ROLES (Pills) */}
         <div
           style={{
             display: "flex",
@@ -397,7 +435,7 @@ export default function UsuariosView() {
                 <UserActions
                   u={u}
                   isSelf={u.id === session?.user?.id}
-                  onAction={(t) => showToast(`Acción: ${t}`)}
+                  onAction={handleAction}
                   onMenuToggle={(open) => setActiveMenuId(open ? u.id : null)}
                 />
               </div>
@@ -419,7 +457,7 @@ export default function UsuariosView() {
         })}
       </div>
 
-      {/* MODAL CREAR (Sin Pass) */}
+      {/* MODAL CREAR (Tuyo original) */}
       <Modal
         open={showCreate}
         onClose={() => setShowCreate(false)}
@@ -477,6 +515,69 @@ export default function UsuariosView() {
         </div>
       </Modal>
 
+      {/* MODAL EDITAR DINÁMICO (Nuevo) */}
+      <Modal
+        open={!!editingUser}
+        onClose={() => setEditingUser(null)}
+        title={
+          editMode === "edit-name"
+            ? "Editar Nombre"
+            : editMode === "edit-email"
+              ? "Cambiar Email"
+              : "Cambiar Rol"
+        }
+      >
+        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+          {editMode === "edit-role" ? (
+            <div className="custom-select-wrapper">
+              <label
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: "var(--text-3)",
+                  marginBottom: 8,
+                  display: "block",
+                }}
+              >
+                NUEVO ROL
+              </label>
+              <Select
+                value={editValue}
+                onChange={(e) => setEditValue(e.target.value)}
+                options={Object.entries(ROLE_META).map(([k, v]) => ({
+                  value: k,
+                  label: v.label,
+                }))}
+              />
+            </div>
+          ) : (
+            <Input
+              label={
+                editMode === "edit-name" ? "NOMBRE COMPLETO" : "NUEVO EMAIL"
+              }
+              value={editValue}
+              onChange={(e) => setEditValue(e.target.value)}
+            />
+          )}
+
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "flex-end",
+              gap: 12,
+              marginTop: 10,
+            }}
+          >
+            <Btn variant="secondary" onClick={() => setEditingUser(null)}>
+              Cancelar
+            </Btn>
+            <Btn variant="primary" onClick={saveEdit}>
+              Guardar Cambios
+            </Btn>
+          </div>
+        </div>
+      </Modal>
+
       <style jsx global>{`
         .user-card {
           transition: all 0.2s ease;
@@ -490,7 +591,6 @@ export default function UsuariosView() {
           background: var(--bg-4) !important;
           color: var(--text-1) !important;
         }
-
         .custom-search-input {
           width: 100%;
           background: var(--bg-3);
@@ -505,7 +605,6 @@ export default function UsuariosView() {
         .custom-search-input:focus {
           border-color: var(--accent);
         }
-
         .filter-pill {
           display: flex;
           align-items: center;
@@ -534,17 +633,15 @@ export default function UsuariosView() {
         .filter-pill.active .dot {
           background: white;
         }
-
         .clear-btn {
           background: none;
           border: none;
           color: var(--danger);
-          fontsize: 11px;
+          font-size: 11px;
           cursor: pointer;
           font-weight: 600;
           text-transform: uppercase;
         }
-
         .btn-dots {
           background: none;
           border: none;
