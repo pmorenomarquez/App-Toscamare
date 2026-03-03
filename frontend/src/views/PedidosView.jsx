@@ -8,12 +8,13 @@ import PedidoDetailModal from '@/components/pedidos/PedidoDetailModal';
 import * as api from '@/utils/api';
 
 export default function PedidosView() {
-  const { pedidos, session, showToast, loadPedidos } = useContext(AppContext);
+  const { pedidos, session, showToast, loadPedidos, adminViewAs } = useContext(AppContext);
   const [search, setSearch] = useState('');
   const [filterEstado, setFilterEstado] = useState('todos');
   const [showCreate, setShowCreate] = useState(false);
   const [detailPedido, setDetailPedido] = useState(null);
   const [confirmId, setConfirmId] = useState(null);
+  const [confirmAction, setConfirmAction] = useState(null); // 'advance' | 'rollback'
   const [actionLoading, setActionLoading] = useState(null);
 
   const isAdmin = session.user.rol === ROLES.ADMIN;
@@ -22,7 +23,16 @@ export default function PedidosView() {
 
   const filtered = useMemo(() => {
     let list = pedidos;
-    // Admin/oficina can filter by estado; other roles receive filtered data from backend
+
+    // When admin views as a specific role, filter to that role's estado
+    if (isAdmin && adminViewAs) {
+      const estadoVisible = ROLE_META[adminViewAs]?.estadoVisible;
+      if (estadoVisible != null) {
+        list = list.filter(p => p.estado_actual === estadoVisible);
+      }
+    }
+
+    // Moderators can further filter by estado dropdown
     if (isModerator && filterEstado !== 'todos') {
       list = list.filter(p => p.estado_actual === parseInt(filterEstado));
     }
@@ -31,7 +41,7 @@ export default function PedidosView() {
       list = list.filter(p => p.codigo.toLowerCase().includes(q) || p.cliente.toLowerCase().includes(q));
     }
     return list;
-  }, [pedidos, filterEstado, search, isModerator]);
+  }, [pedidos, filterEstado, search, isModerator, isAdmin, adminViewAs]);
 
   const advanceOrder = async (pedidoId) => {
     const pedido = pedidos.find(p => p.id === pedidoId);
@@ -48,6 +58,26 @@ export default function PedidosView() {
     } finally {
       setActionLoading(null);
       setConfirmId(null);
+      setConfirmAction(null);
+    }
+  };
+
+  const rollbackOrder = async (pedidoId) => {
+    const pedido = pedidos.find(p => p.id === pedidoId);
+    if (!pedido) return;
+
+    setActionLoading(pedidoId);
+    try {
+      await api.rollbackPedido(pedidoId);
+      const prevLabel = ESTADOS[pedido.estado_actual - 1]?.label || 'Anterior';
+      showToast(pedido.codigo + ' ← ' + prevLabel);
+      await loadPedidos();
+    } catch (e) {
+      showToast(e.message, 'error');
+    } finally {
+      setActionLoading(null);
+      setConfirmId(null);
+      setConfirmAction(null);
     }
   };
 
@@ -60,21 +90,29 @@ export default function PedidosView() {
     }
   };
 
+  // Advance: admin can advance any estado, each role only their own
   const canAdvance = (p) => {
-    if (isModerator) return true;
+    if (isAdmin) return true;
+    return ESTADOS[p.estado_actual]?.role === session.user.rol;
+  };
+
+  // Rollback: send pedido back one estado for corrections
+  // Each role can rollback their own estado, admin can rollback any
+  const canRollback = (p) => {
+    if (p.estado_actual <= 0) return false;
+    if (isAdmin) return true;
     return ESTADOS[p.estado_actual]?.role === session.user.rol;
   };
 
   const canExport = (p) => {
-    return p.estado_actual === 3 && (session.user.rol === ROLES.OFICINA || isAdmin);
+    return p.estado_actual === 3 && (isOficina || isAdmin);
   };
 
-  // Only show advance button for estados 0-2 (estado 3 is final)
   const showAdvanceBtn = (p) => {
     return p.estado_actual < 3 && canAdvance(p);
   };
 
-  const canCreate = session.user.rol === ROLES.OFICINA || isAdmin;
+  const canCreate = isOficina || isAdmin;
 
   return (
     <div style={{ padding: 28 }}>
@@ -89,7 +127,7 @@ export default function PedidosView() {
               <SVG name="search" size={14} color="var(--text-4)" />
             </div>
           </div>
-          {isModerator && <Select value={filterEstado} onChange={e => setFilterEstado(e.target.value)} options={[
+          {isModerator && !adminViewAs && <Select value={filterEstado} onChange={e => setFilterEstado(e.target.value)} options={[
             { value: 'todos', label: 'Todos los estados' }, ...Object.entries(ESTADOS).map(([k, v]) => ({ value: k, label: v.label }))
           ]} />}
         </div>
@@ -101,6 +139,7 @@ export default function PedidosView() {
       <p style={{ fontSize: 12, color: 'var(--text-4)', marginBottom: 14 }}>
         {filtered.length} pedido{filtered.length !== 1 ? 's' : ''}
         {!isModerator && (' — ' + (ROLE_META[session.user.rol]?.label || ''))}
+        {isAdmin && adminViewAs && (' — Vista: ' + (ROLE_META[adminViewAs]?.label || ''))}
       </p>
 
       {filtered.length === 0 ? (
@@ -134,26 +173,40 @@ export default function PedidosView() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
                     <Btn variant="ghost" size="sm" icon="eye" onClick={() => setDetailPedido(p)} />
 
-                    {/* Export Excel button for oficina at state 3 */}
+                    {/* Export Excel button for oficina/admin at state 3 */}
                     {canExport(p) && (
                       <Btn variant="outline" size="sm" icon="download" onClick={() => handleExportExcel(p)}>Excel</Btn>
                     )}
 
-                    {/* Advance state button for estados 0-2 */}
-                    {showAdvanceBtn(p) && (isConfirming ? (
+                    {/* Confirmation dialog */}
+                    {isConfirming ? (
                       <div style={{ display: 'flex', gap: 4 }}>
-                        <Btn variant="ghost" size="sm" onClick={() => setConfirmId(null)}>No</Btn>
-                        <Btn variant="primary" size="sm" icon="check" disabled={isLoading}
-                          onClick={() => advanceOrder(p.id)}>
+                        <Btn variant="ghost" size="sm" onClick={() => { setConfirmId(null); setConfirmAction(null); }}>No</Btn>
+                        <Btn variant={confirmAction === 'rollback' ? 'outline' : 'primary'} size="sm"
+                          icon={confirmAction === 'rollback' ? 'chevronL' : 'check'} disabled={isLoading}
+                          onClick={() => confirmAction === 'rollback' ? rollbackOrder(p.id) : advanceOrder(p.id)}>
                           {isLoading ? '...' : 'Confirmar'}
                         </Btn>
                       </div>
                     ) : (
-                      <Btn variant="primary" size="sm" icon="chevronR"
-                        onClick={() => setConfirmId(p.id)}>
-                        {est.action}
-                      </Btn>
-                    ))}
+                      <>
+                        {/* Rollback button */}
+                        {canRollback(p) && (
+                          <Btn variant="outline" size="sm" icon="chevronL"
+                            onClick={() => { setConfirmId(p.id); setConfirmAction('rollback'); }}>
+                            Devolver
+                          </Btn>
+                        )}
+
+                        {/* Advance state button for estados 0-2 */}
+                        {showAdvanceBtn(p) && (
+                          <Btn variant="primary" size="sm" icon="chevronR"
+                            onClick={() => { setConfirmId(p.id); setConfirmAction('advance'); }}>
+                            {est.action}
+                          </Btn>
+                        )}
+                      </>
+                    )}
                   </div>
                 </div>
               </div>

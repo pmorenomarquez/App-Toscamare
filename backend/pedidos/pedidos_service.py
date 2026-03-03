@@ -322,8 +322,8 @@ class PedidosService:
 
         estado_actual = int(pedido.data["estado"])
 
-        # Admin y oficina pueden avanzar cualquier estado
-        if rol_usuario not in ("admin", "oficina"):
+        # Solo admin puede avanzar cualquier estado
+        if rol_usuario != "admin":
             if rol_usuario not in self.ESTADOS:
                 return {"error": "Rol no válido"}
             if self.ESTADOS[rol_usuario] != estado_actual:
@@ -340,6 +340,47 @@ class PedidosService:
             supabase_admin
             .table("pedidos")
             .update({"estado": siguiente_estado})
+            .eq("id", pedido_id)
+            .execute()
+        )
+
+        return response.data
+
+    # Retroceder estado: devolver pedido al rol anterior para correcciones
+    def retroceder_estado(self, pedido_id, rol_usuario):
+        pedido = (
+            supabase_admin
+            .table("pedidos")
+            .select("*")
+            .eq("id", pedido_id)
+            .maybe_single()
+            .execute()
+        )
+
+        rol_usuario = rol_usuario.strip().lower()
+
+        if not pedido.data:
+            return {"error": "Pedido no encontrado"}
+
+        estado_actual = int(pedido.data["estado"])
+
+        if estado_actual <= 0:
+            return {"error": "El pedido ya está en el primer estado"}
+
+        # Admin puede retroceder cualquier estado
+        # Los demás roles solo pueden retroceder su propio estado
+        if rol_usuario != "admin":
+            if rol_usuario not in self.ESTADOS:
+                return {"error": "Rol no válido"}
+            if self.ESTADOS[rol_usuario] != estado_actual:
+                return {"error": "No puedes retroceder este pedido en su estado actual"}
+
+        estado_anterior = estado_actual - 1
+
+        response = (
+            supabase_admin
+            .table("pedidos")
+            .update({"estado": estado_anterior})
             .eq("id", pedido_id)
             .execute()
         )

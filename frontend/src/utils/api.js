@@ -153,6 +153,10 @@ export function advancePedido(id) {
   return request('/pedidos/' + id + '/estado', { method: 'PATCH' });
 }
 
+export function rollbackPedido(id) {
+  return request('/pedidos/' + id + '/estado/retroceder', { method: 'PATCH' });
+}
+
 export async function exportExcel(id) {
   const res = await fetch(API_BASE + '/pedidos/' + id + '/export/excel', {
     headers: headers(),

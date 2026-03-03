@@ -4,16 +4,18 @@ import { ROLES, ROLE_META } from '@/config/constants';
 import { SVG } from '@/components/ui';
 
 export default function Sidebar({ currentView, setView }) {
-  const { session } = useContext(AppContext);
+  const { session, adminViewAs, setAdminViewAs } = useContext(AppContext);
   const { user } = session;
-  const role = ROLE_META[user.rol];
+  const isAdmin = user.rol === ROLES.ADMIN;
+  const displayRole = isAdmin && adminViewAs ? adminViewAs : user.rol;
+  const role = ROLE_META[displayRole] || ROLE_META[user.rol];
 
   const getNavItemsByRole = () => {
     const baseItems = [
       { id: 'pedidos', label: 'Mi Cuadrante', icon: 'box' },
     ];
 
-    if (user.rol === ROLES.ADMIN) {
+    if (isAdmin) {
       return [
         { id: 'dashboard', label: 'Dashboard', icon: 'home' },
         ...baseItems,
@@ -35,6 +37,11 @@ export default function Sidebar({ currentView, setView }) {
 
   const navItems = getNavItemsByRole();
 
+  const roleOptions = [
+    { value: '', label: 'Admin (todos)' },
+    ...Object.entries(ROLE_META).filter(([k]) => k !== 'admin').map(([k, v]) => ({ value: k, label: v.label })),
+  ];
+
   return (
     <aside style={{ width: 230, flexShrink: 0, background: 'var(--bg-1)', borderRight: '1px solid var(--border-1)',
       display: 'flex', flexDirection: 'column', height: '100vh', position: 'sticky', top: 0 }}>
@@ -51,6 +58,22 @@ export default function Sidebar({ currentView, setView }) {
           </div>
         </div>
       </div>
+
+      {/* Admin role switcher */}
+      {isAdmin && (
+        <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border-1)' }}>
+          <p style={{ fontSize: 9, fontWeight: 600, color: 'var(--text-4)', textTransform: 'uppercase',
+            letterSpacing: '.06em', marginBottom: 6 }}>Ver como rol</p>
+          <select value={adminViewAs || ''} onChange={e => setAdminViewAs(e.target.value || null)}
+            style={{ width: '100%', padding: '6px 28px 6px 8px', background: 'var(--bg-2)',
+              border: '1px solid var(--border-2)', borderRadius: 'var(--r1)', color: 'var(--text-1)',
+              fontSize: 12, cursor: 'pointer' }}>
+            {roleOptions.map(o => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* Nav */}
       <nav style={{ flex: 1, padding: '12px 10px', display: 'flex', flexDirection: 'column', gap: 2 }}>

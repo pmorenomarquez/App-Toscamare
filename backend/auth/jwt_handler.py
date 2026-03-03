@@ -100,7 +100,9 @@ def requiere_rol(roles_permitidos):
             if not payload:
                 return respuesta_error("Token inválido", 401)
             
-            if payload.get('rol') in roles_permitidos:
+            rol_usuario = payload.get('rol')
+            # Admin siempre tiene acceso a todos los endpoints
+            if rol_usuario == 'admin' or rol_usuario in roles_permitidos:
                 return funcion(*args, **kwargs)
             else:
                 return respuesta_error("No tienes permisos para acceder a esta URL", 403)
