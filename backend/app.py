@@ -6,6 +6,7 @@ from auth.jwt_handler import generar_jwt, verificar_jwt
 from database.supabase_client import supabase
 from usuarios.usuarios import usuarios_bp
 from pedidos.pedidos import pedidos_bp
+from productos.productos import productos_bp
 from utils.error_handler import register_error_handlers, respuesta_error
 
 
@@ -15,6 +16,7 @@ CORS(app, origins=[Config.FRONTEND_URL])
 
 app.register_blueprint(usuarios_bp)
 app.register_blueprint(pedidos_bp)
+app.register_blueprint(productos_bp)
 
 @app.route('/health', methods=['GET'])
 def health():

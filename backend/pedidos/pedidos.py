@@ -61,7 +61,7 @@ def obtener_pedido(id):
 # CREAR PEDIDO
 # =========================
 @pedidos_bp.route('', methods=['POST'])
-@requiere_rol("oficina")
+@requiere_rol(["oficina", "admin"])
 def crear_pedido():
     """Crea un nuevo pedido con PDF y extrae datos automáticamente"""
 

@@ -241,10 +241,12 @@ class PedidosService:
                         fila = {
                             'pedido_id': pedido_id,
                             'nombre_producto': producto.get('especie') or producto.get('linea_original'),
-                            'cantidad': kilos
+                            'cantidad': kilos,
+                            'precio': producto.get('precio') or 0
+                            
                         }
                         supabase_admin.table('pedido_productos').insert(fila).execute()
-                        print(f"[OCR] Producto insertado: {fila['nombre_producto']} - {fila['cantidad']} kg")
+                        print(f"[OCR] Producto insertado: {fila['nombre_producto']} - {fila['cantidad']} kg - {fila['precio']} €") ####################################3
                     except Exception as e:
                         print(f"[OCR][ERROR] Error al insertar producto: {e}")
             else:
@@ -403,7 +405,8 @@ class PedidosService:
             ws.append([
                 producto['id'],
                 producto['nombre_producto'],
-                producto['cantidad']
+                producto['cantidad'],
+                producto.get('precio', 0)  #############################################3 Precio no extraído por OCR, se puede actualizar luego
             ])
         
         output = BytesIO()

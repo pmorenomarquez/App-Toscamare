@@ -69,6 +69,8 @@ def main():
                     f.write(f"   Cajas: {producto['cajas']}\n")
                     if producto['peso_kg']:
                         f.write(f"   Peso: {producto['peso_kg']} kg\n")
+                    if producto.get('precio'):
+                        f.write(f"   Precio: {producto['precio']} €\n") #########################################       
                     f.write(f"   Original: {producto['linea_original']}\n")
                     f.write("-" * 80 + "\n")
                 
@@ -78,15 +80,17 @@ def main():
             
             # Guardar en CSV
             with open(output_csv, 'w', encoding='utf-8') as f:
-                f.write("Lote,Especie,Cajas,Peso_KG\n")
+                f.write("Lote,Especie,Cajas,Peso_KG,Precio_EUR\n")
                 for producto in albaran_data['productos']:
                     peso = producto['peso_kg'] if producto['peso_kg'] else ''
-                    f.write(f"{producto['lote']},{producto['especie']},{producto['cajas']},{peso}\n")
+                    precio = producto['precio'] if producto['precio'] else ''  #########################################
+                    f.write(f"{producto['lote']},{producto['especie']},{producto['cajas']},{peso},{precio}\n")
             
             print(f"   ✓ Extraídos {albaran_data['total_productos']} productos:")
             for producto in albaran_data['productos'][:5]:  # Mostrar primeros 5
                 peso_str = f" - {producto['peso_kg']} kg" if producto['peso_kg'] else ""
-                print(f"     • {producto['especie']} (Cajas: {producto['cajas']}){peso_str}")
+                precio_str = f" - {producto['precio']} €" if producto.get('precio') else ""
+                print(f"     • {producto['especie']} (Cajas: {producto['cajas']}){peso_str}{precio_str}")
             
             if albaran_data['total_productos'] > 5:
                 print(f"     ... y {albaran_data['total_productos'] - 5} más")

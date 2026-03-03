@@ -75,6 +75,7 @@ def extract_productos_from_ocr_data(ocr_data: Dict) -> List[Dict]:
             'cajas': int(cajas),
             'especie': especie,
             'peso_kg': float(peso) if peso else None,
+            'precio': float(precio) if precio else None, #########################################
             'linea_original': line_text.strip()
         }
         productos.append(producto)
@@ -372,6 +373,7 @@ def extract_productos(text: str) -> List[Dict]:
                 'cajas': int(cajas),
                 'especie': especie,
                 'peso_kg': float(peso) if peso else None,
+                'precio': float(precio) if precio else None, #########################################
                 'linea_original': line.strip()
             }
             
