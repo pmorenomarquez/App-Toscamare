@@ -181,7 +181,40 @@ def actualizar_estado_pedido(id):
 
 
 # =========================
-# OBTENER PDF 
+# RETROCEDER ESTADO PEDIDO
+# =========================
+
+@pedidos_bp.route('/<uuid:id>/estado/retroceder', methods=['PATCH'])
+@requiere_autenticacion
+def retroceder_estado_pedido(id):
+
+    auth_header = request.headers.get("Authorization")
+
+    if not auth_header:
+        return respuesta_error("Token requerido", 401)
+
+    try:
+        token = auth_header.split(" ")[1]
+    except IndexError:
+        return respuesta_error("Formato de token inválido", 401)
+
+    payload = verificar_jwt(token)
+
+    if not payload:
+        return respuesta_error("Token inválido", 401)
+
+    rol_usuario = payload.get("rol")
+
+    resultado = service.retroceder_estado(str(id), rol_usuario)
+
+    if "error" in resultado:
+        return respuesta_error(resultado["error"], 400)
+
+    return jsonify(resultado), 200
+
+
+# =========================
+# OBTENER PDF
 # =========================
 
 @pedidos_bp.route('/<uuid:id>/pdf', methods=['GET'])

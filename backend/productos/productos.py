@@ -1,159 +1,381 @@
-# Imports
-
-#Blueprint --> Utilizado para organizar rutas en Flask mediante módulos. Permite crear rutas específicas para funcionalidades particulares, como productos en este caso.
-#Flask --> Framework web ligero para Python, utilizado para crear aplicaciones web y APIs RESTful.
-#request --> Objeto de Flask que contiene datos de la solicitud HTTP, como JSON, parámetros de consulta, etc.
-#jsonify --> Función de Flask que convierte datos de Python a formato JSON para enviar respuestas HTTP.
-#supabase --> Biblioteca de Python para interactuar con Supabase, una plataforma de backend como servicio que ofrece una base de datos PostgreSQL, autenticación, almacenamiento y funciones en la nube.    
-#os --> Módulo de Python para interactuar con el sistema operativo, utilizado aquí para acceder a variables de entorno.
-#dotenv --> Biblioteca para cargar variables de entorno desde un archivo .env, lo que permite mantener las credenciales y configuraciones sensibles fuera del código fuente.
-
-import os
-from flask import request, jsonify, Blueprint
-from supabase import create_client, Client
-from dotenv import load_dotenv
-from auth.jwt_handler import requiere_autenticacion, requiere_rol
-from utils.error_handler import respuesta_error
-from utils.validators import validar_cantidad
-
-load_dotenv()
-
-
-#Creamos el blueprint
-productos_bp = Blueprint('productos', __name__)
-
-# 2. Conectar con Supabase usando tus credenciales reales. Se leen de las variables de entorno para mantener la seguridad. No se hardcodean en el código fuente.
-SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-#Funcion auxiliar. Crea un cliente de Supabase utilizando el token de usuario. Clave para que funcionen las politicas de seguridad Row Level Security (RLS) en tu base de datos. Sin este paso, las consultas podrían no retornar datos o fallar debido a restricciones de acceso.
-def get_supabase_client(token):
-    return create_client(
-        SUPABASE_URL,
-        SUPABASE_KEY,
-        options={
-            "headers": {
-                #Pasamos el token de usuario autenticado. Supabase sabrá quien es y qué rol tiene.
-                "Authorization": f"Bearer {token}"
-            }
+from database.supabase_client import supabase
+from database.supabase_client_admin import supabase_admin
+from datetime import datetime
+import uuid
+import tempfile
+import shutil
+from pathlib import Path
+ 
+# OCR imports (usa el paquete local `ocr/src`)
+from ocr.src.pdf_to_img import convert_pdf_to_images
+from ocr.src.ocr import process_image_with_ocr, get_ocr_data
+from ocr.src.extract import extract_albaran_data
+from openpyxl import Workbook
+from io import BytesIO
+ 
+class PedidosService:
+   
+    ESTADOS = {
+        "almacen": 0,
+        "logistica": 1,
+        "transportista": 2,
+        "oficina": 3
+    }
+   
+    # Guardar PDFs en este bucket de Supabase Storage
+    BUCKET = "pedidos-pdfs"
+   
+    # ===============================================
+    # OBTENER
+    # ===============================================
+   
+   
+    # Métodos para obtener pedidos
+    def obtener_todos(self):
+        response = supabase.table("pedidos").select("*").execute()
+        return response.data
+ 
+    # Obtener pedidos por estado (almacen, logistica, transportista, oficina)
+    def obtener_por_estado(self, estado):
+        response = (
+            supabase
+            .table("pedidos")
+            .select("*")
+            .eq("estado", estado)
+            .execute()
+        )
+        return response.data
+ 
+    # Obtener pedidos por rol (almacen, logistica, transportista, oficina)
+    def obtener_por_rol(self, rol):
+        if not rol:
+            return []
+ 
+        rol_norm = rol.strip().lower()
+ 
+        if rol_norm in ("admin", "oficina"):
+            return self.obtener_todos()
+ 
+        if rol_norm not in self.ESTADOS:
+            return []
+ 
+        estado_num = self.ESTADOS[rol_norm]
+        return self.obtener_por_estado(estado_num)
+ 
+    def obtener_por_id(self, pedido_id):
+        """
+        Obtiene un pedido por su ID y adjunta los productos relacionados.
+        Usa el cliente admin para asegurar que se recuperan los productos
+        independientemente de las políticas RLS (la ruta que llama a este
+        método ya está protegida por autenticación).
+        """
+        pedido = (
+            supabase
+            .table("pedidos")
+            .select("*")
+            .eq("id", pedido_id)
+            .maybe_single()
+            .execute()
+        )
+ 
+        if not pedido.data:
+            return None
+ 
+        # Obtener productos asociados usando el cliente admin para evitar RLS
+        try:
+            productos_resp = (
+                supabase_admin
+                .table("pedido_productos")
+                .select("*")
+                .eq("pedido_id", pedido_id)
+                .execute()
+            )
+            productos = productos_resp.data or []
+        except Exception:
+            productos = []
+ 
+        resultado = pedido.data
+        resultado["productos"] = productos
+        return resultado
+   
+    # ===============================================
+    # CREAR Y SUBIR PDF
+    # ===============================================
+   
+    # def crear(self, datos):
+    #     """
+    #     Crea un nuevo pedido.
+    #     Siempre inicia en estado 'almacen' (0).
+    #     """
+ 
+    #     if not datos:
+    #         return {"error": "Datos requeridos"}
+ 
+ 
+    #     nuevo_pedido = {
+    #         "cliente_nombre": datos["cliente_nombre"],
+    #         "estado": datos.get("estado", 0),
+    #         "usuario_responsable_id": datos["usuario_responsable_id"],
+    #         "estado": self.ESTADOS["almacen"]  # Siempre empieza en almacen
+    #     }
+ 
+    #     response = (
+    #         supabase
+    #         .table("pedidos")
+    #         .insert(nuevo_pedido)
+    #         .execute()
+    #     )
+ 
+    #     return response.data
+   
+   
+    # Crear un nuevo pedido con PDF. Extrae datos automáticamente del PDF con OCR.
+    def crear_con_pdf(self, cliente_nombre, usuario_responsable_id, archivo_pdf):
+ 
+        pedido_id = str(uuid.uuid4())
+        nombre_archivo = f"{pedido_id}.pdf"
+ 
+        print(f"[CREATE_PEDIDO] Iniciando creación de pedido")
+        print(f"[CREATE_PEDIDO] cliente_nombre: {cliente_nombre}")
+        print(f"[CREATE_PEDIDO] usuario_responsable_id: {usuario_responsable_id}")
+        print(f"[CREATE_PEDIDO] archivo_pdf: {archivo_pdf.filename if archivo_pdf else None}")
+ 
+        # Guardar PDF en archivo temporal para procesamiento
+        tmp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+        try:
+            archivo_pdf.save(tmp_pdf.name)
+            tmp_pdf_path = tmp_pdf.name
+            print(f"[CREATE_PEDIDO] PDF guardado en temporales: {tmp_pdf_path}")
+           
+            # Subir a Supabase Storage
+            with open(tmp_pdf_path, 'rb') as f:
+                supabase_admin.storage.from_(self.BUCKET).upload(
+                    nombre_archivo,
+                    f.read(),
+                    {"content-type": "application/pdf"}
+                )
+            print(f"[CREATE_PEDIDO] PDF subido a Supabase Storage: {nombre_archivo}")
+        except Exception as e:
+            print(f"[CREATE_PEDIDO][ERROR] Error al guardar PDF: {e}")
+            return {"error": f"Error al guardar PDF: {e}"}
+ 
+        # Crear pedido en BD con el PDF
+        nuevo_pedido = {
+            "id": pedido_id,
+            "cliente_nombre": cliente_nombre,
+            "estado": self.ESTADOS["almacen"],
+            "usuario_responsable_id": usuario_responsable_id,
+            "pdf_url": nombre_archivo
         }
-    )
-
-# --- RUTAS DE LA API ---
-
-# 1. Listar productos de un pedido (GET). Depende del rol y el estado del pedido (RLS) el mostrar o no los productos. Si el usuario no tiene permiso, la respuesta será una lista vacía o un error de autorización, dependiendo de cómo estén configuradas las políticas en Supabase.
-@productos_bp.route("/api/pedidos/<pedido_id>/productos", methods=['GET'])
-@requiere_autenticacion
-def listar_productos(pedido_id):
-    try:
-        #Obtenemos el token de Authorization
-        auth_header = request.headers.get("Authorization")
-        token = auth_header.replace("Bearer ", "") if auth_header else ""
-
-        #Decodificar el JWT para revisar el rol
-        from auth.jwt_handler import verificar_jwt
-        payload = verificar_jwt(token)
-        rol = payload.get("rol") if payload else None
-
-        #Si el usuario es admin usamos el cliente global (service key) para saltar RLS
-        if rol == "admin":
-            sb = supabase  # servicio con clave de administrador
-        else:
-            sb = get_supabase_client(token)
-
-        # Consultamos la tabla 'pedido_productos', filtrando por el pedido correspondiente
-        response = sb.table("pedido_productos").select("*").eq("pedido_id", pedido_id).execute()
-
-        #Devolvemos la lista de productos en formato JSON
-        return jsonify(response.data), 200
-    except Exception as e:
-        return respuesta_error(str(e), 500)
-
-# 2. Añadir un producto a un pedido (POST). Solo el rol de oficina (controlado por Supabase RLS).
-@productos_bp.route('/api/pedido-productos', methods=['POST'])
-@requiere_rol(["oficina", "almacen", "logistica"])
-def añadir_producto():
-    try:
-
-        #Obtenemos el token de Authorization
-        token = request.headers.get("Authorization").replace("Bearer ", "")
-
-        #Creamos el cliente Supabase con ese token
-        sb = get_supabase_client(token)
-
-        #Datos enviados en el cuerpo de la solicitud (JSON)
-        datos = request.json
-
-        if not validar_cantidad(datos['cantidad']):
-            return respuesta_error("Cantidad inválida. Debe ser mayor que 0", 400)
-            
-        # Insertamos los datos en la tabla 'pedido_productos'
-        nueva_fila = {
-            "pedido_id": datos['pedido_id'],
-            "nombre_producto": datos['nombre_producto'],
-            "cantidad": datos['cantidad']
+ 
+        try:
+            response = (
+                supabase_admin
+                .table("pedidos")
+                .insert(nuevo_pedido)
+                .execute()
+            )
+            print(f"[CREATE_PEDIDO] Pedido creado en BD: {pedido_id}")
+        except Exception as e:
+            print(f"[CREATE_PEDIDO][ERROR] Error al crear pedido en BD: {e}")
+            return {"error": f"Error al crear pedido: {e}"}
+ 
+        # Procesar OCR para extraer productos del PDF
+        try:
+            print(f"[OCR] Iniciando procesamiento OCR para pedido {pedido_id}")
+            print(f"[OCR] archivo temporal: {tmp_pdf_path}")
+ 
+            # Crear un directorio temporal para imágenes
+            tmp_images_dir = Path(tempfile.mkdtemp())
+            print(f"[OCR] directorio temporal de imágenes: {tmp_images_dir}")
+ 
+            # Convertir PDF a imágenes
+            try:
+                image_files = convert_pdf_to_images(tmp_pdf_path, tmp_images_dir)
+            except Exception as e:
+                print(f"[OCR][ERROR] error al convertir PDF a imágenes: {e}")
+                image_files = []
+ 
+            print(f"[OCR] imágenes generadas: {len(image_files)}")
+            for p in image_files:
+                print(f"[OCR] - {p}")
+ 
+            # Ejecutar OCR sobre cada imagen y recolectar texto y datos
+            all_text = ""
+            ocr_data_list = []
+            for img in image_files:
+                try:
+                    t = process_image_with_ocr(img)
+                    print(f"[OCR] OCR texto longitud ({img}): {len(t)}")
+                except Exception as e:
+                    print(f"[OCR][ERROR] error en process_image_with_ocr para {img}: {e}")
+                    t = ""
+ 
+                all_text += t + "\n"
+ 
+                try:
+                    data = get_ocr_data(img, lang='spa+por')
+                    if data:
+                        print(f"[OCR] get_ocr_data returned words: {len(data.get('text', [])) if isinstance(data, dict) else 'n/a'}")
+                        ocr_data_list.append(data)
+                except Exception as e:
+                    print(f"[OCR][ERROR] error en get_ocr_data para {img}: {e}")
+ 
+            # Extraer productos del albarán
+            try:
+                albaran_data = extract_albaran_data(all_text, ocr_data_list=ocr_data_list)
+            except Exception as e:
+                print(f"[OCR][ERROR] error extrayendo productos: {e}")
+                albaran_data = {'productos': []}
+ 
+            productos = albaran_data.get('productos', [])
+            print(f"[OCR] productos extraidos: {len(productos)}")
+            for producto in productos[:10]:
+                print(f"[OCR] producto: {producto}")
+ 
+            # Insertar productos en la tabla 'pedido_productos' usando supabase_admin (bypass RLS)
+            if productos:
+                for producto in productos:
+                    try:
+                        # usar peso en kg como cantidad
+                        kilos = producto.get('peso_kg') or 0
+                        fila = {
+                            'pedido_id': pedido_id,
+                            'nombre_producto': producto.get('especie') or producto.get('linea_original'),
+                            'cantidad': kilos
+                        }
+                        supabase_admin.table('pedido_productos').insert(fila).execute()
+                        print(f"[OCR] Producto insertado: {fila['nombre_producto']} - {fila['cantidad']} kg")
+                    except Exception as e:
+                        print(f"[OCR][ERROR] Error al insertar producto: {e}")
+            else:
+                print(f"[OCR] WARNING: No se extrajeron productos del PDF")
+ 
+        except Exception as e:
+            # No abortar la creación del pedido si OCR falla; registrar si es necesario
+            print(f"[OCR][WARNING] Error procesando OCR del PDF para pedido {pedido_id}: {e}")
+        finally:
+            # Limpiar archivos temporales
+            try:
+                if tmp_pdf_path and Path(tmp_pdf_path).exists():
+                    Path(tmp_pdf_path).unlink()
+                    print(f"[OCR] Archivo temporal PDF limpiado")
+            except Exception:
+                pass
+            try:
+                if tmp_images_dir and tmp_images_dir.exists():
+                    shutil.rmtree(tmp_images_dir)
+                    print(f"[OCR] Directorio temporal de imágenes limpiado")
+            except Exception:
+                pass
+ 
+        return response.data
+   
+    # =========================
+    # OBTENER URL FIRMADA
+    # =========================
+ 
+    def obtener_pdf_firmado(self, pedido_id):
+ 
+        pedido = (
+            supabase
+            .table("pedidos")
+            .select("pdf_url")
+            .eq("id", pedido_id)
+            .maybe_single()
+            .execute()
+        )
+ 
+        if not pedido.data:
+            return {"error": "Pedido no encontrado"}
+ 
+        nombre_archivo = pedido.data["pdf_url"]
+ 
+        if not nombre_archivo:
+            return {"error": "Este pedido no tiene PDF"}
+ 
+        # Generar URL firmada (60 segundos)
+        signed_url = supabase.storage.from_(self.BUCKET).create_signed_url(
+            nombre_archivo,
+            60
+        )
+ 
+        return signed_url
+   
+ 
+   
+    # Función que actualiza el estado del pedido, solo si el rol del usuario coincide con el estado actual del pedido
+    def actualizar_estado(self, pedido_id, rol_usuario):
+        # Obtener pedido actual
+        pedido = (
+            supabase
+            .table("pedidos")
+            .select("*")
+            .eq("id", pedido_id)
+            .maybe_single()
+            .execute()
+        )
+       
+        rol_usuario = rol_usuario.strip().lower()
+ 
+        if not pedido.data:
+            return {"error": "Pedido no encontrado"}
+ 
+        estado_actual = int(pedido.data["estado"])
+       
+ 
+        # Validar que el rol coincide con el estado actual
+        if rol_usuario not in self.ESTADOS:
+            return {"error": "Rol no válido"}
+ 
+        # print("ROL DEL TOKEN:", rol_usuario)
+        # print("ESTADO ACTUAL BD:", estado_actual)
+        # print("ESTADO QUE DEBERÍA TENER ESE ROL:", self.ESTADOS.get(rol_usuario))
+        if self.ESTADOS[rol_usuario] != estado_actual:
+            return {"error": "No puedes modificar este pedido en su estado actual"}
+ 
+        # Calcular siguiente estado
+        siguiente_estado = estado_actual + 1
+ 
+        if siguiente_estado > 3:
+            return {"error": "El pedido ya está finalizado"}
+ 
+        # Actualizar estado
+        datos_actualizacion = {
+            "estado": siguiente_estado
         }
-        response = sb.table("pedido_productos").insert(nueva_fila).execute()
-
-        #Devolvemos la nueva fila insertada en formato JSON
-        return jsonify(response.data), 201
-    except Exception as e:
-        return respuesta_error(str(e), 400)
-
-
-
-
-# 3. Actualizar un producto de un pedido (PUT). Solo el rol de almacén y logística (estados 0 y 1, todo controlado por Supabase RLS).
-@productos_bp.route('/api/pedido-productos/<producto_id>', methods=['PUT'])
-@requiere_rol(["oficina", "logistica"])
-def actualizar_producto(producto_id):
-    try:
-
-        #Obtenemos el token de Authorization
-        token = request.headers.get("Authorization").replace("Bearer ", "")
-
-        #Creamos el cliente Supabase con ese token
-        sb = get_supabase_client(token)
-
-        #Datos enviados en el cuerpo de la solicitud (JSON)
-        datos = request.json
-
-        if datos.get("cantidad") and not validar_cantidad(datos.get("cantidad")):
-            return respuesta_error("Cantidad inválida. Debe ser mayor que 0", 400)
-
-        # Actualizamos los datos en la tabla 'pedido_productos'
-        response = sb.table("pedido_productos").update({
-            "nombre_producto": datos.get("nombre_producto"),
-            "cantidad": datos.get("cantidad")
-            }).eq("id", producto_id).execute()
-
-        #Devolvemos la fila actualizada en formato JSON
-        return jsonify(response.data), 200
-    except Exception as e:
-        return respuesta_error(str(e), 400)
-
-
-# Eliminar un producto de un pedido (DELETE). Solo el rol de oficina (controlado por Supabase RLS).
-@productos_bp.route('/api/pedido-productos/<producto_id>', methods=['DELETE'])
-@requiere_rol(["oficina", "almacen", "logistica"])
-def eliminar_producto(producto_id):
-    try:
-
-        #Obtenemos el token de Authorization
-        token = request.headers.get("Authorization").replace("Bearer ", "")
-
-        #Creamos el cliente Supabase con ese token
-        sb = get_supabase_client(token)
-
-        # Eliminamos la fila de la tabla 'pedido_productos'
-        response = sb.table("pedido_productos").delete().eq("id", producto_id).execute()
-
-        # Si no se eliminó ningún registro, significa que el producto no existe o ya fue eliminado. Devolvemos un mensaje de error.
-        if not response.data:
-            return respuesta_error("Producto no encontrado o ya eliminado", 404)
-        
-        #En el caso de éxito, devolvemos un mensaje de confirmación
-        return jsonify({"message": "Producto eliminado correctamente"}), 200
-    except Exception as e:
-        return respuesta_error(str(e), 400)
+ 
+        response = (
+            supabase
+            .table("pedidos")
+            .update(datos_actualizacion)
+            .eq("id", pedido_id)
+            .execute()
+        )
+ 
+        return response.data
+   
+    def exportar_a_excel(self, pedido_id):
+        response = supabase.table("pedido_productos").select("*").eq("pedido_id", pedido_id).execute()
+       
+        productos = response.data
+       
+        print("Productos obtenidos:", productos)
+       
+        wb = Workbook()
+        ws = wb.active
+       
+        ws.append(["Código", "Nombre", "Cantidad"])
+       
+        for producto in productos:
+            ws.append([
+                producto['id'],
+                producto['nombre_producto'],
+                producto['cantidad']
+            ])
+       
+        output = BytesIO()
+        wb.save(output)
+        output.seek(0)
+       
+        return output

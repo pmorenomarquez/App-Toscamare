@@ -9,6 +9,7 @@ export function AppProvider({ children }) {
   const [session, setSession] = useState(null);
   const [toast, setToast] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [adminViewAs, setAdminViewAs] = useState(null); // admin role switcher
   const toastTimer = useRef(null);
 
   const showToast = useCallback((msg, type = 'success') => {
@@ -91,8 +92,9 @@ export function AppProvider({ children }) {
       pedidos, setPedidos, usuarios,
       session, loginMicrosoft, logout, showToast, toast, loading,
       loadPedidos, loadUsuarios,
+      adminViewAs, setAdminViewAs,
     }),
-    [pedidos, usuarios, session, loginMicrosoft, logout, showToast, toast, loading, loadPedidos, loadUsuarios]
+    [pedidos, usuarios, session, loginMicrosoft, logout, showToast, toast, loading, loadPedidos, loadUsuarios, adminViewAs]
   );
 
   return <AppContext.Provider value={ctx}>{children}</AppContext.Provider>;

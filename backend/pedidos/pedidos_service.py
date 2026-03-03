@@ -1,4 +1,3 @@
-from database.supabase_client import supabase
 from database.supabase_client_admin import supabase_admin
 from datetime import datetime
 import uuid
@@ -30,15 +29,15 @@ class PedidosService:
     # ===============================================
     
     
-    # Métodos para obtener pedidos
+    # Métodos para obtener pedidos (usa supabase_admin para bypass RLS)
     def obtener_todos(self):
-        response = supabase.table("pedidos").select("*").execute()
+        response = supabase_admin.table("pedidos").select("*").execute()
         return response.data
 
     # Obtener pedidos por estado (almacen, logistica, transportista, oficina)
     def obtener_por_estado(self, estado):
         response = (
-            supabase
+            supabase_admin
             .table("pedidos")
             .select("*")
             .eq("estado", estado)
@@ -278,7 +277,7 @@ class PedidosService:
     def obtener_pdf_firmado(self, pedido_id):
 
         pedido = (
-            supabase
+            supabase_admin
             .table("pedidos")
             .select("pdf_url")
             .eq("id", pedido_id)
@@ -295,7 +294,7 @@ class PedidosService:
             return {"error": "Este pedido no tiene PDF"}
 
         # Generar URL firmada (60 segundos)
-        signed_url = supabase.storage.from_(self.BUCKET).create_signed_url(
+        signed_url = supabase_admin.storage.from_(self.BUCKET).create_signed_url(
             nombre_archivo,
             60
         )
@@ -308,31 +307,27 @@ class PedidosService:
     def actualizar_estado(self, pedido_id, rol_usuario):
         # Obtener pedido actual
         pedido = (
-            supabase
+            supabase_admin
             .table("pedidos")
             .select("*")
             .eq("id", pedido_id)
             .maybe_single()
             .execute()
         )
-        
+
         rol_usuario = rol_usuario.strip().lower()
 
         if not pedido.data:
             return {"error": "Pedido no encontrado"}
 
         estado_actual = int(pedido.data["estado"])
-        
 
-        # Validar que el rol coincide con el estado actual
-        if rol_usuario not in self.ESTADOS:
-            return {"error": "Rol no válido"}
-
-        # print("ROL DEL TOKEN:", rol_usuario)
-        # print("ESTADO ACTUAL BD:", estado_actual)
-        # print("ESTADO QUE DEBERÍA TENER ESE ROL:", self.ESTADOS.get(rol_usuario))
-        if self.ESTADOS[rol_usuario] != estado_actual:
-            return {"error": "No puedes modificar este pedido en su estado actual"}
+        # Solo admin puede avanzar cualquier estado
+        if rol_usuario != "admin":
+            if rol_usuario not in self.ESTADOS:
+                return {"error": "Rol no válido"}
+            if self.ESTADOS[rol_usuario] != estado_actual:
+                return {"error": "No puedes modificar este pedido en su estado actual"}
 
         # Calcular siguiente estado
         siguiente_estado = estado_actual + 1
@@ -341,14 +336,51 @@ class PedidosService:
             return {"error": "El pedido ya está finalizado"}
 
         # Actualizar estado
-        datos_actualizacion = {
-            "estado": siguiente_estado
-        }
+        response = (
+            supabase_admin
+            .table("pedidos")
+            .update({"estado": siguiente_estado})
+            .eq("id", pedido_id)
+            .execute()
+        )
+
+        return response.data
+
+    # Retroceder estado: devolver pedido al rol anterior para correcciones
+    def retroceder_estado(self, pedido_id, rol_usuario):
+        pedido = (
+            supabase_admin
+            .table("pedidos")
+            .select("*")
+            .eq("id", pedido_id)
+            .maybe_single()
+            .execute()
+        )
+
+        rol_usuario = rol_usuario.strip().lower()
+
+        if not pedido.data:
+            return {"error": "Pedido no encontrado"}
+
+        estado_actual = int(pedido.data["estado"])
+
+        if estado_actual <= 0:
+            return {"error": "El pedido ya está en el primer estado"}
+
+        # Admin puede retroceder cualquier estado
+        # Los demás roles solo pueden retroceder su propio estado
+        if rol_usuario != "admin":
+            if rol_usuario not in self.ESTADOS:
+                return {"error": "Rol no válido"}
+            if self.ESTADOS[rol_usuario] != estado_actual:
+                return {"error": "No puedes retroceder este pedido en su estado actual"}
+
+        estado_anterior = estado_actual - 1
 
         response = (
-            supabase
+            supabase_admin
             .table("pedidos")
-            .update(datos_actualizacion)
+            .update({"estado": estado_anterior})
             .eq("id", pedido_id)
             .execute()
         )
@@ -356,7 +388,7 @@ class PedidosService:
         return response.data
     
     def exportar_a_excel(self, pedido_id):
-        response = supabase.table("pedido_productos").select("*").eq("pedido_id", pedido_id).execute()
+        response = supabase_admin.table("pedido_productos").select("*").eq("pedido_id", pedido_id).execute()
         
         productos = response.data
         
