@@ -6,13 +6,15 @@ import Topbar from '@/components/layout/Topbar';
 import DashboardView from './DashboardView';
 import PedidosView from './PedidosView';
 import PipelineView from './PipelineView';
+import CompletadosView from './CompletadosView';
 import UsuariosView from './UsuariosView';
 
 const VIEW_META = {
-  dashboard: (u) => ({ title: 'Dashboard', subtitle: 'Bienvenido, ' + u.nombre }),
-  pedidos:   (u) => ({ title: 'Gestión de Pedidos', subtitle: (u.rol === ROLES.ADMIN || u.rol === ROLES.OFICINA) ? 'Todos los pedidos' : 'Vista de ' + ROLE_META[u.rol].label }),
-  pipeline:  ()  => ({ title: 'Pipeline', subtitle: 'Vista Kanban de todos los estados' }),
-  usuarios:  ()  => ({ title: 'Gestión de Usuarios', subtitle: 'Administrar cuentas y roles' }),
+  dashboard:   (u) => ({ title: 'Dashboard', subtitle: 'Bienvenido, ' + u.nombre }),
+  pedidos:     (u) => ({ title: 'Gestión de Pedidos', subtitle: (u.rol === ROLES.ADMIN || u.rol === ROLES.OFICINA) ? 'Todos los pedidos' : 'Vista de ' + ROLE_META[u.rol].label }),
+  completados: ()  => ({ title: 'Pedidos Completados', subtitle: 'Historial de pedidos finalizados' }),
+  pipeline:    ()  => ({ title: 'Pipeline', subtitle: 'Vista Kanban de todos los estados' }),
+  usuarios:    ()  => ({ title: 'Gestión de Usuarios', subtitle: 'Administrar cuentas y roles' }),
 };
 
 export default function MainLayout() {
@@ -25,6 +27,7 @@ export default function MainLayout() {
     if (session.user.rol === ROLES.OFICINA) return viewId !== 'usuarios';
     return viewId === 'pedidos';
   };
+  const isModerator = session.user.rol === ROLES.ADMIN || session.user.rol === ROLES.OFICINA;
 
   const handleSetView = (newView) => {
     if (canAccessView(newView)) {
@@ -40,9 +43,10 @@ export default function MainLayout() {
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         <Topbar title={meta.title} subtitle={meta.subtitle} onNavigate={handleSetView} />
         <main style={{ flex: 1, overflowY: 'auto' }}>
-          {view === 'dashboard' && (session.user.rol === ROLES.ADMIN || session.user.rol === ROLES.OFICINA) && <DashboardView setView={handleSetView} />}
-          {view === 'pedidos'   && <PedidosView />}
-          {view === 'pipeline'  && (session.user.rol === ROLES.ADMIN || session.user.rol === ROLES.OFICINA) && <PipelineView />}
+          {view === 'dashboard' && isModerator && <DashboardView setView={handleSetView} />}
+          {view === 'pedidos'      && <PedidosView />}
+          {view === 'completados' && isModerator && <CompletadosView />}
+          {view === 'pipeline'    && isModerator && <PipelineView />}
           {view === 'usuarios'  && session.user.rol === ROLES.ADMIN && <UsuariosView />}
         </main>
       </div>

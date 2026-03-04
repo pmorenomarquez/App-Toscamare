@@ -19,6 +19,7 @@ export default function Sidebar({ currentView, setView }) {
       return [
         { id: 'dashboard', label: 'Dashboard', icon: 'home' },
         ...baseItems,
+        { id: 'completados', label: 'Completados', icon: 'checkCirc' },
         { id: 'pipeline', label: 'Pipeline', icon: 'grid' },
         { id: 'usuarios', label: 'Usuarios', icon: 'users' },
       ];
@@ -28,6 +29,7 @@ export default function Sidebar({ currentView, setView }) {
       return [
         { id: 'dashboard', label: 'Dashboard', icon: 'home' },
         ...baseItems,
+        { id: 'completados', label: 'Completados', icon: 'checkCirc' },
         { id: 'pipeline', label: 'Pipeline', icon: 'grid' },
       ];
     }

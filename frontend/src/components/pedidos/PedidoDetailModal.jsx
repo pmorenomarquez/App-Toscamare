@@ -32,17 +32,21 @@ export default function PedidoDetailModal({
   if (!pedido) return null;
   const est = ESTADOS[pedido.estado_actual];
 
-  // Almacén can edit products when pedido is at estado 0
+  const rol = session.user.rol;
+  const isModerator = rol === ROLES.ADMIN || rol === ROLES.OFICINA;
+
+  // Edit quantities: almacen at estado 0, or admin/oficina at any state up to 2
   const canEditProducts =
-    pedido.estado_actual === 0 &&
-    (session.user.rol === ROLES.ALMACEN || session.user.rol === ROLES.ADMIN);
-  // Roles that can add/delete products
+    (pedido.estado_actual === 0 && (rol === ROLES.ALMACEN || isModerator)) ||
+    (isModerator && pedido.estado_actual <= 2);
+
+  // Add/delete products: oficina, almacen, logistica, admin
   const canManageProducts = [
     ROLES.OFICINA,
     ROLES.ALMACEN,
     ROLES.LOGISTICA,
     ROLES.ADMIN,
-  ].includes(session.user.rol);
+  ].includes(rol);
 
   return (
     <Modal
@@ -190,7 +194,7 @@ export default function PedidoDetailModal({
               Progreso
             </span>
             <div style={{ display: "flex", alignItems: "center" }}>
-              {Object.entries(ESTADOS).map(([k, v], i) => {
+              {Object.entries(ESTADOS).map(([k, v], i, arr) => {
                 const done = pedido.estado_actual > parseInt(k);
                 const current = pedido.estado_actual === parseInt(k);
                 return (
@@ -231,7 +235,7 @@ export default function PedidoDetailModal({
                         />
                       )}
                     </div>
-                    {i < 3 && (
+                    {i < arr.length - 1 && (
                       <div
                         style={{
                           flex: 1,

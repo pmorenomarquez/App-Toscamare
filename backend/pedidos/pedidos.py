@@ -79,7 +79,7 @@ def crear_pedido():
     if not payload:
         return respuesta_error("Token inválido", 401)
 
-    if payload.get("rol") != "oficina":
+    if payload.get("rol") not in ("oficina", "admin"):
         return respuesta_error("No autorizado", 403)
 
     # DEBUG: Ver qué se está recibiendo
@@ -240,6 +240,21 @@ def obtener_pdf(id):
         return respuesta_error(resultado["error"], 404)
 
     return jsonify(resultado), 200
+
+# =========================
+# ELIMINAR PEDIDO
+# =========================
+
+@pedidos_bp.route('/<uuid:id>', methods=['DELETE'])
+@requiere_rol(["oficina", "admin"])
+def eliminar_pedido(id):
+    resultado = service.eliminar_pedido(str(id))
+
+    if isinstance(resultado, dict) and "error" in resultado:
+        return respuesta_error(resultado["error"], 400)
+
+    return jsonify({"message": "Pedido eliminado correctamente"}), 200
+
 
 @pedidos_bp.route('/<uuid:id>/export/excel', methods=['GET'])
 # oficina y admin pueden exportar

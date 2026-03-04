@@ -12,7 +12,7 @@ export default function PipelineView() {
   return (
     <div style={{ padding: 28 }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, minHeight: 'calc(100vh - 180px)' }}>
-        {Object.entries(ESTADOS).map(([estado, cfg]) => {
+        {Object.entries(ESTADOS).filter(([k]) => parseInt(k) <= 3).map(([estado, cfg]) => {
           const items = pedidos.filter(p => p.estado_actual === parseInt(estado));
           return (
             <div key={estado} className="anim-fade" style={{ background: 'var(--bg-1)', border: '1px solid var(--border-1)',

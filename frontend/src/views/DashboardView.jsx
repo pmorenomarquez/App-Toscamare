@@ -8,11 +8,13 @@ export default function DashboardView({ setView }) {
   const { pedidos, session } = useContext(AppContext);
   const isModerator = session.user.rol === ROLES.ADMIN || session.user.rol === ROLES.OFICINA;
 
-  const stats = Object.entries(ESTADOS).map(([e, cfg]) => ({
+  const stats = Object.entries(ESTADOS).filter(([k]) => parseInt(k) <= 3).map(([e, cfg]) => ({
     estado: parseInt(e), ...cfg, count: pedidos.filter(p => p.estado_actual === parseInt(e)).length,
   }));
+  const completadosCount = pedidos.filter(p => p.estado_actual === 4).length;
 
-  const myPedidos = isModerator ? pedidos : pedidos.filter(p => {
+  const activePedidos = pedidos.filter(p => p.estado_actual <= 3);
+  const myPedidos = isModerator ? activePedidos : activePedidos.filter(p => {
     return p.estado_actual === ROLE_META[session.user.rol].estadoVisible;
   });
 
@@ -34,6 +36,13 @@ export default function DashboardView({ setView }) {
           </div>
         ))}
         <div className="anim-fade d5" style={{ background: 'var(--bg-2)', border: '1px solid var(--border-1)', borderRadius: 'var(--r3)', padding: '18px 20px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-4)', textTransform: 'uppercase', letterSpacing: '.04em' }}>Completados</span>
+            <SVG name="checkCirc" size={16} color="#22C55E" />
+          </div>
+          <span style={{ fontSize: 34, fontWeight: 700, letterSpacing: '-0.03em', color: '#22C55E' }}>{completadosCount}</span>
+        </div>
+        <div className="anim-fade d6" style={{ background: 'var(--bg-2)', border: '1px solid var(--border-1)', borderRadius: 'var(--r3)', padding: '18px 20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
             <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-4)', textTransform: 'uppercase', letterSpacing: '.04em' }}>Total</span>
             <SVG name="box" size={16} color="var(--text-4)" />

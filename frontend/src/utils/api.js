@@ -162,6 +162,10 @@ export function rollbackPedido(id) {
   return request("/pedidos/" + id + "/estado/retroceder", { method: "PATCH" });
 }
 
+export function deletePedido(id) {
+  return request("/pedidos/" + id, { method: "DELETE" });
+}
+
 export async function exportExcel(id) {
   const res = await fetch(API_BASE + "/pedidos/" + id + "/export/excel", {
     headers: headers(),

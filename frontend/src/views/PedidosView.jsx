@@ -15,15 +15,17 @@ export default function PedidosView() {
   const [showCreate, setShowCreate] = useState(false);
   const [detailPedido, setDetailPedido] = useState(null);
   const [confirmId, setConfirmId] = useState(null);
-  const [confirmAction, setConfirmAction] = useState(null); // 'advance' | 'rollback'
+  const [confirmAction, setConfirmAction] = useState(null); // 'advance' | 'rollback' | 'delete'
   const [actionLoading, setActionLoading] = useState(null);
 
-  const isAdmin = session.user.rol === ROLES.ADMIN;
-  const isOficina = session.user.rol === ROLES.OFICINA;
+  const userRol = session.user.rol;
+  const isAdmin = userRol === ROLES.ADMIN;
+  const isOficina = userRol === ROLES.OFICINA;
   const isModerator = isAdmin || isOficina;
 
   const filtered = useMemo(() => {
-    let list = pedidos;
+    // Only show active pedidos (estado 0-3), not completados (4)
+    let list = pedidos.filter((p) => p.estado_actual <= 3);
 
     // When admin views as a specific role, filter to that role's estado
     if (isAdmin && adminViewAs) {
@@ -55,7 +57,7 @@ export default function PedidosView() {
     setActionLoading(pedidoId);
     try {
       await api.advancePedido(pedidoId);
-      const nextLabel = ESTADOS[pedido.estado_actual + 1]?.label || "Siguiente";
+      const nextLabel = ESTADOS[pedido.estado_actual + 1]?.label || "Completado";
       showToast(pedido.codigo + " → " + nextLabel);
       await loadPedidos();
     } catch (e) {
@@ -86,6 +88,21 @@ export default function PedidosView() {
     }
   };
 
+  const handleDelete = async (pedido) => {
+    setActionLoading(pedido.id);
+    try {
+      await api.deletePedido(pedido.id);
+      showToast(pedido.codigo + " eliminado");
+      await loadPedidos();
+    } catch (e) {
+      showToast(e.message, "error");
+    } finally {
+      setActionLoading(null);
+      setConfirmId(null);
+      setConfirmAction(null);
+    }
+  };
+
   const handleExportExcel = async (pedido) => {
     try {
       await api.exportExcel(pedido.id);
@@ -95,29 +112,28 @@ export default function PedidosView() {
     }
   };
 
-  // Advance: admin can advance any estado, each role only their own
+  // Advance: admin/oficina can advance any estado, each role only their own
   const canAdvance = (p) => {
-    if (isAdmin) return true;
-    return ESTADOS[p.estado_actual]?.role === session.user.rol;
+    if (isAdmin || isOficina) return true;
+    return ESTADOS[p.estado_actual]?.role === userRol;
   };
 
   // Rollback: send pedido back one estado for corrections
-  // Each role can rollback their own estado, admin can rollback any
   const canRollback = (p) => {
     if (p.estado_actual <= 0) return false;
-    if (isAdmin) return true;
-    return ESTADOS[p.estado_actual]?.role === session.user.rol;
+    if (isAdmin || isOficina) return true;
+    return ESTADOS[p.estado_actual]?.role === userRol;
   };
 
   const canExport = (p) => {
-    return p.estado_actual === 3 && (isOficina || isAdmin);
+    return p.estado_actual === 3 && isModerator;
   };
 
   const showAdvanceBtn = (p) => {
-    return p.estado_actual < 3 && canAdvance(p);
+    return p.estado_actual <= 3 && canAdvance(p);
   };
 
-  const canCreate = isOficina || isAdmin;
+  const canCreate = isModerator;
 
   return (
     <div style={{ padding: 28 }}>
@@ -127,7 +143,7 @@ export default function PedidosView() {
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          marginBottom: 20,
+          marginBottom: 16,
           flexWrap: "wrap",
           gap: 12,
         }}
@@ -173,38 +189,40 @@ export default function PedidosView() {
               onChange={(e) => setFilterEstado(e.target.value)}
               options={[
                 { value: "todos", label: "Todos los estados" },
-                ...Object.entries(ESTADOS).map(([k, v]) => ({
-                  value: k,
-                  label: v.label,
-                })),
+                ...Object.entries(ESTADOS)
+                  .filter(([k]) => parseInt(k) <= 3)
+                  .map(([k, v]) => ({
+                    value: k,
+                    label: v.label,
+                  })),
               ]}
             />
           )}
         </div>
-        {canCreate && (
-          <Btn
-            variant="primary"
-            icon="plus"
-            onClick={() => setShowCreate(true)}
-          >
-            Nuevo Pedido
-          </Btn>
-        )}
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <p style={{ fontSize: 12, color: "var(--text-4)" }}>
+            {filtered.length} pedido{filtered.length !== 1 ? "s" : ""}
+            {isAdmin &&
+              adminViewAs &&
+              " — Vista: " + (ROLE_META[adminViewAs]?.label || "")}
+          </p>
+          {canCreate && (
+            <Btn
+              variant="primary"
+              icon="plus"
+              onClick={() => setShowCreate(true)}
+            >
+              Nuevo Pedido
+            </Btn>
+          )}
+        </div>
       </div>
-
-      <p style={{ fontSize: 12, color: "var(--text-4)", marginBottom: 14 }}>
-        {filtered.length} pedido{filtered.length !== 1 ? "s" : ""}
-        {!isModerator && " — " + (ROLE_META[session.user.rol]?.label || "")}
-        {isAdmin &&
-          adminViewAs &&
-          " — Vista: " + (ROLE_META[adminViewAs]?.label || "")}
-      </p>
 
       {filtered.length === 0 ? (
         <EmptyState
           icon="check"
           title="Sin pedidos pendientes"
-          subtitle={search ? "Intenta otro término" : "Tu bandeja está vacía"}
+          subtitle={search ? "Intenta otro termino" : "Tu bandeja esta vacia"}
         />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -306,6 +324,13 @@ export default function PedidosView() {
                           PDF
                         </span>
                       )}
+                      <span style={{
+                        fontSize: 10, color: est.color, fontWeight: 500,
+                        display: "flex", alignItems: "center", gap: 4,
+                      }}>
+                        <SVG name={ROLE_META[est.role]?.icon || "user"} size={11} color={est.color} />
+                        {ROLE_META[est.role]?.label || est.role}
+                      </span>
                     </div>
                   </div>
                   <div
@@ -338,36 +363,55 @@ export default function PedidosView() {
                     {/* Confirmation dialog */}
                     {isConfirming ? (
                       <div style={{ display: "flex", gap: 4 }}>
-                        <Btn
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => {
-                            setConfirmId(null);
-                            setConfirmAction(null);
-                          }}
-                        >
-                          No
-                        </Btn>
-                        <Btn
-                          variant={
-                            confirmAction === "rollback" ? "outline" : "primary"
-                          }
-                          size="sm"
-                          icon={
-                            confirmAction === "rollback" ? "chevronL" : "check"
-                          }
-                          disabled={isLoading}
-                          onClick={() =>
-                            confirmAction === "rollback"
-                              ? rollbackOrder(p.id)
-                              : advanceOrder(p.id)
-                          }
-                        >
-                          {isLoading ? "..." : "Confirmar"}
-                        </Btn>
+                          <Btn
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setConfirmId(null);
+                              setConfirmAction(null);
+                                                    }}
+                          >
+                            No
+                          </Btn>
+                          <Btn
+                            variant={
+                              confirmAction === "delete" ? "outline"
+                              : confirmAction === "rollback" ? "outline"
+                              : "primary"
+                            }
+                            size="sm"
+                            icon={
+                              confirmAction === "rollback" ? "chevronL"
+                              : confirmAction === "delete" ? "trash"
+                              : "check"
+                            }
+                            danger={confirmAction === "delete"}
+                            disabled={isLoading}
+                            onClick={() => {
+                              if (confirmAction === "rollback") rollbackOrder(p.id);
+                              else if (confirmAction === "delete") handleDelete(p);
+                              else advanceOrder(p.id);
+                            }}
+                          >
+                            {isLoading ? "..." : confirmAction === "delete" ? "Eliminar" : "Confirmar"}
+                          </Btn>
                       </div>
                     ) : (
                       <>
+                        {/* Delete button for oficina/admin */}
+                        {isModerator && (
+                          <Btn
+                            variant="ghost"
+                            size="sm"
+                            icon="trash"
+                            danger
+                            onClick={() => {
+                              setConfirmId(p.id);
+                              setConfirmAction("delete");
+                            }}
+                          />
+                        )}
+
                         {/* Rollback button */}
                         {canRollback(p) && (
                           <Btn
@@ -383,12 +427,12 @@ export default function PedidosView() {
                           </Btn>
                         )}
 
-                        {/* Advance state button for estados 0-2 */}
+                        {/* Advance state button */}
                         {showAdvanceBtn(p) && (
                           <Btn
                             variant="primary"
                             size="sm"
-                            icon="chevronR"
+                            icon={p.estado_actual === 3 ? "check" : "chevronR"}
                             onClick={() => {
                               setConfirmId(p.id);
                               setConfirmAction("advance");

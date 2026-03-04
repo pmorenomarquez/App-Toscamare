@@ -324,8 +324,8 @@ class PedidosService:
 
         estado_actual = int(pedido.data["estado"])
 
-        # Solo admin puede avanzar cualquier estado
-        if rol_usuario != "admin":
+        # Admin y oficina pueden avanzar cualquier estado
+        if rol_usuario not in ("admin", "oficina"):
             if rol_usuario not in self.ESTADOS:
                 return {"error": "Rol no válido"}
             if self.ESTADOS[rol_usuario] != estado_actual:
@@ -334,7 +334,7 @@ class PedidosService:
         # Calcular siguiente estado
         siguiente_estado = estado_actual + 1
 
-        if siguiente_estado > 3:
+        if siguiente_estado > 4:
             return {"error": "El pedido ya está finalizado"}
 
         # Actualizar estado
@@ -369,9 +369,9 @@ class PedidosService:
         if estado_actual <= 0:
             return {"error": "El pedido ya está en el primer estado"}
 
-        # Admin puede retroceder cualquier estado
+        # Admin y oficina pueden retroceder cualquier estado
         # Los demás roles solo pueden retroceder su propio estado
-        if rol_usuario != "admin":
+        if rol_usuario not in ("admin", "oficina"):
             if rol_usuario not in self.ESTADOS:
                 return {"error": "Rol no válido"}
             if self.ESTADOS[rol_usuario] != estado_actual:
@@ -383,6 +383,22 @@ class PedidosService:
             supabase_admin
             .table("pedidos")
             .update({"estado": estado_anterior})
+            .eq("id", pedido_id)
+            .execute()
+        )
+
+        return response.data
+
+    # Eliminar pedido (solo admin/oficina)
+    def eliminar_pedido(self, pedido_id):
+        # Primero eliminar productos asociados
+        supabase_admin.table("pedido_productos").delete().eq("pedido_id", pedido_id).execute()
+
+        # Luego eliminar el pedido
+        response = (
+            supabase_admin
+            .table("pedidos")
+            .delete()
             .eq("id", pedido_id)
             .execute()
         )

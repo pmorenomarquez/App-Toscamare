@@ -39,7 +39,7 @@ export default function Topbar({ title, subtitle, onNavigate }) {
     const rol = session.user.rol;
 
     if (rol === ROLES.ADMIN) {
-      return pedidos;
+      return pedidos.filter(p => p.estado_actual <= 3);
     }
 
     if (rol === ROLES.OFICINA) {
