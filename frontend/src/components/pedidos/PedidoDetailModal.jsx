@@ -4,7 +4,6 @@ import { ROLES, ESTADOS } from "@/config/constants";
 import { formatDateTime } from "@/utils/helpers";
 import { Modal, Badge, SVG, Btn } from "@/components/ui";
 import ProductosTable from "./ProductosTable";
-import FirmaModal from "./FirmaModal";
 import * as api from "@/utils/api";
 
 export default function PedidoDetailModal({
@@ -16,7 +15,6 @@ export default function PedidoDetailModal({
   const { session } = useContext(AppContext);
   const [pdfUrl, setPdfUrl] = useState(null);
   const [loadingPdf, setLoadingPdf] = useState(false);
-  const [showFirma, setShowFirma] = useState(false);
 
   useEffect(() => {
     if (pedido && pedido.pdf_ruta) {
@@ -36,11 +34,6 @@ export default function PedidoDetailModal({
 
   const rol = session.user.rol;
   const isModerator = rol === ROLES.ADMIN || rol === ROLES.OFICINA;
-
-  // Signature: transportista (or admin/oficina) can sign at estado 2
-  const canSign =
-    pedido.estado_actual === 2 &&
-    (rol === ROLES.TRANSPORTISTA || isModerator);
 
   // Edit quantities: almacen at estado 0, or admin/oficina at any state up to 2
   const canEditProducts =
@@ -230,7 +223,7 @@ export default function PedidoDetailModal({
                         justifyContent: "center",
                       }}
                     >
-                      {done && <SVG name="check" size={12} color="#0A0C10" />}
+                      {done && <SVG name="check" size={12} color="#FFFFFF" />}
                       {current && (
                         <span
                           style={{
@@ -283,21 +276,6 @@ export default function PedidoDetailModal({
           </div>
         </div>
       </div>
-
-      {/* Signature button for transportista at estado 2 */}
-      {canSign && (
-        <div style={{ marginTop: 18, display: "flex", justifyContent: "flex-end" }}>
-          <Btn variant="primary" icon="check" onClick={() => setShowFirma(true)}>
-            Recoger firma del cliente
-          </Btn>
-        </div>
-      )}
-
-      <FirmaModal
-        open={showFirma}
-        onClose={() => setShowFirma(false)}
-        pedido={pedido}
-      />
     </Modal>
   );
 }

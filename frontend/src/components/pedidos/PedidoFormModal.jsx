@@ -60,7 +60,15 @@ export default function PedidoFormModal({ open, onClose }) {
             onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border-2)'}>
             <input ref={fileRef} type="file" accept=".pdf" style={{ display: 'none' }}
               onChange={e => setPdfFile(e.target.files[0] || null)} />
-            {pdfFile ? (
+            {saving ? (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '10px 0' }}>
+                <div className="anim-spin" style={{ display: 'flex', marginBottom: 16 }}>
+                  <SVG name="loader" size={32} color="var(--accent)" />
+                </div>
+                <p style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-1)' }}>Procesando documento...</p>
+                <p style={{ fontSize: 12, color: 'var(--text-4)', marginTop: 4 }}>La IA está extrayendo los productos del PDF. Por favor, espera.</p>
+              </div>
+            ) : pdfFile ? (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
                 <SVG name="file" size={18} color="var(--accent)" />
                 <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--accent)' }}>{pdfFile.name}</span>
@@ -81,7 +89,7 @@ export default function PedidoFormModal({ open, onClose }) {
         </div>
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 8 }}>
-          <Btn variant="secondary" onClick={handleClose}>Cancelar</Btn>
+          <Btn variant="secondary" onClick={handleClose} disabled={saving}>Cancelar</Btn>
           <Btn variant="primary" icon="plus" disabled={saving} onClick={handleSave}>
             {saving ? 'Procesando PDF...' : 'Crear Pedido'}
           </Btn>
