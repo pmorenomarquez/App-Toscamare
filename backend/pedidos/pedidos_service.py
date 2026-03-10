@@ -460,57 +460,61 @@ class PedidosService:
             print(f"[FIRMA][ERROR] Error decodificando firma: {e}")
             return {"error": "Firma invalida"}
 
-        # 4. Leer PDF original y obtener dimensiones de la primera pagina
+        # 4. Leer PDF original
         try:
             reader = PdfReader(BytesIO(pdf_bytes))
-            first_page = reader.pages[0]
-            page_width = float(first_page.mediabox.width)
-            page_height = float(first_page.mediabox.height)
         except Exception as e:
             print(f"[FIRMA][ERROR] Error leyendo PDF: {e}")
             return {"error": "Error procesando PDF"}
 
-        # 5. Crear capa overlay con la firma en esquina superior derecha
-        overlay_buffer = BytesIO()
-        c = rl_canvas.Canvas(overlay_buffer, pagesize=(page_width, page_height))
-
-        margin = 20
-        firma_width = 150
-        firma_height = 50
-        firma_x = page_width - firma_width - margin
-        firma_y = page_height - firma_height - margin - 14
-
-        # Texto "Firma del cliente"
-        c.setFont("Helvetica", 7)
-        c.setFillColorRGB(0.4, 0.4, 0.4)
-        c.drawCentredString(firma_x + firma_width / 2, firma_y + firma_height + 4, "Firma del cliente")
-
-        # Imagen de la firma
-        firma_image = ImageReader(BytesIO(firma_bytes))
-        c.drawImage(firma_image, firma_x, firma_y, width=firma_width, height=firma_height, mask='auto')
-
-        # Linea debajo
-        c.setStrokeColorRGB(0.7, 0.7, 0.7)
-        c.setLineWidth(0.5)
-        c.line(firma_x, firma_y - 2, firma_x + firma_width, firma_y - 2)
-
-        # Fecha
-        c.setFont("Helvetica", 5)
-        c.setFillColorRGB(0.5, 0.5, 0.5)
         fecha_firma = datetime.now().strftime("%d/%m/%Y %H:%M")
-        c.drawCentredString(firma_x + firma_width / 2, firma_y - 10, f"Firmado: {fecha_firma}")
-
-        c.save()
-        overlay_buffer.seek(0)
-
-        # 6. Fusionar overlay con la ultima pagina del PDF original
-        overlay_reader = PdfReader(overlay_buffer)
         writer = PdfWriter()
 
-        for i, page in enumerate(reader.pages):
-            if i == len(reader.pages) - 1:
-                # Ultima pagina: superponer la firma
-                page.merge_page(overlay_reader.pages[0])
+        # 5. Procesar cada pagina: rotar si horizontal + añadir firma
+        for page in reader.pages:
+            page_width = float(page.mediabox.width)
+            page_height = float(page.mediabox.height)
+
+            # Rotar paginas horizontales a vertical
+            if page_width > page_height:
+                page.rotate(90)
+                page_width, page_height = page_height, page_width
+
+            # Crear overlay de firma para esta pagina
+            overlay_buffer = BytesIO()
+            cv = rl_canvas.Canvas(overlay_buffer, pagesize=(page_width, page_height))
+
+            margin = 20
+            firma_width = 150
+            firma_height = 50
+            firma_x = page_width - firma_width - margin
+            firma_y = page_height - firma_height - margin - 14
+
+            # Texto "Firma del cliente"
+            cv.setFont("Helvetica", 7)
+            cv.setFillColorRGB(0.4, 0.4, 0.4)
+            cv.drawCentredString(firma_x + firma_width / 2, firma_y + firma_height + 4, "Firma del cliente")
+
+            # Imagen de la firma
+            firma_image = ImageReader(BytesIO(firma_bytes))
+            cv.drawImage(firma_image, firma_x, firma_y, width=firma_width, height=firma_height, mask='auto')
+
+            # Linea debajo
+            cv.setStrokeColorRGB(0.7, 0.7, 0.7)
+            cv.setLineWidth(0.5)
+            cv.line(firma_x, firma_y - 2, firma_x + firma_width, firma_y - 2)
+
+            # Fecha
+            cv.setFont("Helvetica", 5)
+            cv.setFillColorRGB(0.5, 0.5, 0.5)
+            cv.drawCentredString(firma_x + firma_width / 2, firma_y - 10, f"Firmado: {fecha_firma}")
+
+            cv.save()
+            overlay_buffer.seek(0)
+
+            # Fusionar firma con la pagina
+            overlay_page = PdfReader(overlay_buffer).pages[0]
+            page.merge_page(overlay_page)
             writer.add_page(page)
 
         # 7. Generar PDF firmado
@@ -520,29 +524,26 @@ class PedidosService:
         signed_bytes = signed_buffer.read()
         print(f"[FIRMA] PDF original: {len(pdf_bytes)} bytes, PDF firmado: {len(signed_bytes)} bytes")
 
-        # 8. Subir PDF firmado a Supabase (borrar original y subir nuevo)
+        # 8. Subir PDF firmado a Supabase con nombre distinto (mantener original)
+        nombre_firmado = nombre_archivo.replace(".pdf", "_firmado.pdf")
         try:
-            # Eliminar el PDF original primero
-            supabase_admin.storage.from_(self.BUCKET).remove([nombre_archivo])
-            print(f"[FIRMA] PDF original eliminado: {nombre_archivo}")
-
-            # Subir el PDF firmado con el mismo nombre
             supabase_admin.storage.from_(self.BUCKET).upload(
-                nombre_archivo,
+                nombre_firmado,
                 signed_bytes,
                 {"content-type": "application/pdf"}
             )
-            print(f"[FIRMA] PDF firmado subido: {nombre_archivo}")
+            print(f"[FIRMA] PDF firmado subido: {nombre_firmado}")
         except Exception as e:
             print(f"[FIRMA][ERROR] Error subiendo PDF firmado: {e}")
             return {"error": f"Error subiendo PDF firmado: {e}"}
 
-        # 9. Avanzar estado a 3 (Oficina) y marcar como firmado
+        # 9. Avanzar estado a 3 y guardar ruta del PDF firmado
         try:
             supabase_admin.table("pedidos").update({
-                "estado": 3
+                "estado": 3,
+                "pdf_firmado": nombre_firmado
             }).eq("id", pedido_id).execute()
-            print(f"[FIRMA] Pedido {pedido_id} avanzado a estado 3 (firmado)")
+            print(f"[FIRMA] Pedido {pedido_id} avanzado a estado 3, pdf_firmado: {nombre_firmado}")
         except Exception as e:
             print(f"[FIRMA][ERROR] Error actualizando pedido: {e}")
             return {"error": "PDF firmado pero error al actualizar estado"}
