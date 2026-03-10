@@ -8,20 +8,20 @@
   --bg-0: #08090C; --bg-1: #0E1017; --bg-2: #14161E; --bg-3: #1A1D28; --bg-4: #222636;
   --border-1: #1E2130; --border-2: #2A2E40; --border-3: #363B52;
   --text-1: #E4E7F0; --text-2: #9BA1B7; --text-3: #636882; --text-4: #3E4259;
-  --accent: #D4A017; --accent-dim: #D4A01718; --accent-border: #D4A01730;
+  --accent: #6366F1; --accent-dim: #6366F118; --accent-border: #6366F130;
   --danger: #E5484D; --success: #30A46C; --info: #3B82F6;
   --font: 'Outfit', system-ui, sans-serif; --mono: 'IBM Plex Mono', monospace;
   --r1: 6px; --r2: 10px; --r3: 14px;
-  --shadow: 0 2px 16px rgba(0,0,0,.35); --ease: cubic-bezier(.4,0,.2,1);
+  --shadow: 0 4px 20px rgba(0,0,0,.45); --ease: cubic-bezier(.4,0,.2,1);
 }
 
 [data-theme="light"] {
-  --bg-0: #F5F6FA; --bg-1: #FFFFFF; --bg-2: #F0F1F5; --bg-3: #E6E8EE; --bg-4: #DADCE5;
-  --border-1: #E0E2EA; --border-2: #D0D3DD; --border-3: #B8BCC9;
-  --text-1: #1A1D28; --text-2: #4A4F65; --text-3: #6B7089; --text-4: #9BA0B5;
-  --accent: #B8860B; --accent-dim: #B8860B14; --accent-border: #B8860B28;
-  --danger: #DC3545; --success: #28A745; --info: #2563EB;
-  --shadow: 0 2px 16px rgba(0,0,0,.08);
+  --bg-0: #F8FAFC; --bg-1: #FFFFFF; --bg-2: #F1F5F9; --bg-3: #E2E8F0; --bg-4: #CBD5E1;
+  --border-1: #E2E8F0; --border-2: #CBD5E1; --border-3: #94A3B8;
+  --text-1: #0F172A; --text-2: #334155; --text-3: #475569; --text-4: #64748B;
+  --accent: #4F46E5; --accent-dim: #4F46E514; --accent-border: #4F46E528;
+  --danger: #EF4444; --success: #22C55E; --info: #3B82F6;
+  --shadow: 0 4px 16px rgba(0,0,0,.06);
 }
 
 body { font-family: var(--font); background: var(--bg-0); color: var(--text-1); line-height: 1.5; -webkit-font-smoothing: antialiased; }
@@ -46,6 +46,7 @@ input:focus, select:focus, textarea:focus { outline: none; }
 .anim-slide { animation: slideRight .3s var(--ease) both; }
 .anim-scale { animation: scaleIn .25s var(--ease) both; }
 .anim-shake { animation: shake .3s ease; }
+.anim-spin { animation: spin 1s linear infinite; }
 
 .d1{animation-delay:40ms} .d2{animation-delay:80ms} .d3{animation-delay:120ms} .d4{animation-delay:160ms}
 .d5{animation-delay:200ms} .d6{animation-delay:240ms} .d7{animation-delay:280ms} .d8{animation-delay:320ms}

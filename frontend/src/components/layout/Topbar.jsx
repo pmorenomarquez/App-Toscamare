@@ -84,7 +84,7 @@ export default function Topbar({ title, subtitle, onNavigate }) {
           </button>
           {taskCount > 0 && (
             <span style={{ position: 'absolute', top: -3, right: -3, minWidth: 16, height: 16, padding: '0 4px',
-              borderRadius: '50%', background: 'var(--accent)', color: '#0A0C10', fontSize: 9, fontWeight: 700,
+              borderRadius: '50%', background: 'var(--accent)', color: '#FFFFFF', fontSize: 9, fontWeight: 700,
               display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
               {taskCount > 99 ? '99+' : taskCount}
             </span>

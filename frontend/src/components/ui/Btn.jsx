@@ -4,7 +4,7 @@ const SIZES = { sm: { padding:'5px 12px', fontSize:12 }, md: { padding:'8px 16px
 
 export default function Btn({ children, variant='secondary', size='md', icon, danger, disabled, onClick, style:s, ...rest }) {
   const vars = {
-    primary:   { background: danger ? 'var(--danger)' : 'var(--accent)', color: '#0A0C10' },
+    primary:   { background: danger ? 'var(--danger)' : 'var(--accent)', color: '#FFFFFF' },
     secondary: { background: 'var(--bg-3)', color: 'var(--text-1)', border: '1px solid var(--border-2)' },
     ghost:     { background: 'transparent', color: danger ? 'var(--danger)' : 'var(--text-2)' },
     outline:   { background: 'transparent', color: danger ? 'var(--danger)' : 'var(--text-1)', border: '1px solid ' + (danger ? 'var(--danger)' : 'var(--border-2)') },

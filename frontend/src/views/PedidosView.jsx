@@ -1,4 +1,4 @@
-import { useState, useMemo, useContext } from "react";
+import { useState, useMemo, useContext, useEffect } from "react";
 import { AppContext } from "@/context/AppContext";
 import { ROLES, ROLE_META, ESTADOS } from "@/config/constants";
 import { timeAgo } from "@/utils/helpers";
@@ -6,6 +6,7 @@ import { SVG, Btn, Badge, Select, EmptyState } from "@/components/ui";
 import PedidoFormModal from "@/components/pedidos/PedidoFormModal";
 import PedidoDetailModal from "@/components/pedidos/PedidoDetailModal";
 import FirmaModal from "@/components/pedidos/FirmaModal";
+import SignatureModal from "@/components/pedidos/SignatureModal";
 import * as api from "@/utils/api";
 
 export default function PedidosView() {
@@ -21,16 +22,22 @@ export default function PedidosView() {
   const [firmaPedido, setFirmaPedido] = useState(null);
 
   const userRol = session.user.rol;
-  const isAdmin = userRol === ROLES.ADMIN;
-  const isOficina = userRol === ROLES.OFICINA;
+  const effectiveRol = adminViewAs || userRol;
+  const isAdminOriginal = userRol === ROLES.ADMIN;
+  const isAdmin = effectiveRol === ROLES.ADMIN;
+  const isOficina = effectiveRol === ROLES.OFICINA;
   const isModerator = isAdmin || isOficina;
+
+  useEffect(() => {
+    setFilterEstado("todos");
+  }, [adminViewAs]);
 
   const filtered = useMemo(() => {
     // Only show active pedidos (estado 0-3), not completados (4)
     let list = pedidos.filter((p) => p.estado_actual <= 3);
 
     // When admin views as a specific role, filter to that role's estado
-    if (isAdmin && adminViewAs) {
+    if (adminViewAs) {
       const estadoVisible = ROLE_META[adminViewAs]?.estadoVisible;
       if (estadoVisible != null) {
         list = list.filter((p) => p.estado_actual === estadoVisible);
@@ -117,18 +124,18 @@ export default function PedidosView() {
   // Advance: admin/oficina can advance any estado, each role only their own
   const canAdvance = (p) => {
     if (isAdmin || isOficina) return true;
-    return ESTADOS[p.estado_actual]?.role === userRol;
+    return ESTADOS[p.estado_actual]?.role === effectiveRol;
   };
 
   // Rollback: send pedido back one estado for corrections
   const canRollback = (p) => {
     if (p.estado_actual <= 0) return false;
     if (isAdmin || isOficina) return true;
-    return ESTADOS[p.estado_actual]?.role === userRol;
+    return ESTADOS[p.estado_actual]?.role === effectiveRol;
   };
 
   const canSign = (p) => {
-    return p.estado_actual === 2 && (userRol === ROLES.TRANSPORTISTA || isModerator);
+    return p.estado_actual === 2 && (effectiveRol === ROLES.TRANSPORTISTA || isModerator);
   };
 
   const canExport = (p) => {
@@ -140,6 +147,30 @@ export default function PedidosView() {
   };
 
   const canCreate = isModerator;
+
+  // Function to determine if transportista is trying to confirm and has valid signature in localstorage
+  const handleConfirmCarga = async (pedidoId) => {
+    const firmaGuardada = localStorage.getItem('firma_' + pedidoId);
+    if (!firmaGuardada) {
+      showToast("Es necesario firmar antes de confirmar la carga", "error");
+      return;
+    }
+
+    setActionLoading(pedidoId);
+    try {
+      await api.firmarPedido(pedidoId, firmaGuardada);
+      localStorage.removeItem('firma_' + pedidoId);
+      
+      const pedido = pedidos.find(p => p.id === pedidoId);
+      const nextLabel = ESTADOS[pedido.estado_actual + 1]?.label || "Completado";
+      showToast(pedido.codigo + " → " + nextLabel);
+      await loadPedidos();
+    } catch (e) {
+      showToast(e.message || "Error al completar flujo", "error");
+    } finally {
+      setActionLoading(null);
+    }
+  };
 
   return (
     <div style={{ padding: 28 }}>
@@ -348,11 +379,14 @@ export default function PedidosView() {
                     }}
                   >
                     <Btn
-                      variant="ghost"
+                      variant="outline"
                       size="sm"
                       icon="eye"
+                      title="Ver detalle del pedido"
                       onClick={() => setDetailPedido(p)}
-                    />
+                    >
+                      Ver
+                    </Btn>
 
                     {/* Export Excel button for oficina/admin at state 3 */}
                     {canExport(p) && (
@@ -362,7 +396,7 @@ export default function PedidosView() {
                         icon="download"
                         onClick={() => handleExportExcel(p)}
                       >
-                        Excel
+                        Descargar Excel
                       </Btn>
                     )}
 
@@ -377,7 +411,7 @@ export default function PedidosView() {
                               setConfirmAction(null);
                                                     }}
                           >
-                            No
+                            Cancelar
                           </Btn>
                           <Btn
                             variant={
@@ -404,12 +438,13 @@ export default function PedidosView() {
                       </div>
                     ) : (
                       <>
-                        {/* Delete button for oficina/admin */}
-                        {isModerator && (
+                        {/* Delete button only strictly for the original admin/oficina users */}
+                        {(isAdminOriginal || session.user.rol === ROLES.OFICINA) && !adminViewAs && (
                           <Btn
-                            variant="ghost"
+                            variant="outline"
                             size="sm"
                             icon="trash"
+                            title="Eliminar pedido"
                             danger
                             onClick={() => {
                               setConfirmId(p.id);
@@ -433,19 +468,31 @@ export default function PedidosView() {
                           </Btn>
                         )}
 
-                        {/* Sign button for transportista at estado 2 */}
+                        {/* Transportista flow at estado 2: Sign -> Confirm */}
                         {canSign(p) && (
-                          <Btn
-                            variant="primary"
-                            size="sm"
-                            icon="check"
-                            onClick={() => setFirmaPedido(p)}
-                          >
-                            Firmar entrega
-                          </Btn>
+                          <>
+                            <Btn
+                              variant={localStorage.getItem('firma_' + p.id) ? "outline" : "primary"}
+                              size="sm"
+                              icon="edit"
+                              style={localStorage.getItem('firma_' + p.id) ? { borderColor: 'var(--success)', color: 'var(--success)' } : {}}
+                              onClick={() => setFirmaPedido(p)}
+                            >
+                              {localStorage.getItem('firma_' + p.id) ? "Ver firma" : "Firmar"}
+                            </Btn>
+                            <Btn
+                              variant="primary"
+                              size="sm"
+                              icon="check"
+                              disabled={!localStorage.getItem('firma_' + p.id) || isLoading}
+                              onClick={() => handleConfirmCarga(p.id)}
+                            >
+                              {isLoading ? "..." : "Confirmar Carga"}
+                            </Btn>
+                          </>
                         )}
 
-                        {/* Advance state button (hide at estado 2 if canSign, since firma advances automatically) */}
+                        {/* Advance state button (hide at estado 2 if canSign) */}
                         {showAdvanceBtn(p) && !canSign(p) && (
                           <Btn
                             variant="primary"
@@ -476,7 +523,7 @@ export default function PedidosView() {
         pedido={detailPedido}
         onRefresh={loadPedidos}
       />
-      <FirmaModal
+      <SignatureModal
         open={!!firmaPedido}
         onClose={() => setFirmaPedido(null)}
         pedido={firmaPedido}
