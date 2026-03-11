@@ -152,6 +152,29 @@ class PedidosService:
             tmp_pdf_path = tmp_pdf.name
             print(f"[CREATE_PEDIDO] PDF guardado en temporales: {tmp_pdf_path}")
             
+            # RECTIFICAR ORIENTACIÓN: Si el documento viene horizontal, rotarlo a vertical.
+            try:
+                reader = PdfReader(tmp_pdf_path)
+                writer = PdfWriter()
+                modificado = False
+                
+                for page in reader.pages:
+                    w = float(page.mediabox.width)
+                    h = float(page.mediabox.height)
+                    
+                    if w > h:
+                        page.rotate(270)
+                        modificado = True
+                    
+                    writer.add_page(page)
+                
+                if modificado:
+                    with open(tmp_pdf_path, 'wb') as f_out:
+                        writer.write(f_out)
+                    print("[CREATE_PEDIDO] PDF corregido: Rotado a formato vertical exitosamente.")
+            except Exception as e:
+                print(f"[CREATE_PEDIDO][ERROR] Error ignorado al intentar rotar el PDF: {e}")
+
             # Subir a Supabase Storage
             with open(tmp_pdf_path, 'rb') as f:
                 supabase_admin.storage.from_(self.BUCKET).upload(
@@ -477,7 +500,7 @@ class PedidosService:
 
             # Rotar paginas horizontales a vertical
             if page_width > page_height:
-                page.rotate(90)
+                page.rotate(270)
                 page_width, page_height = page_height, page_width
 
             # Crear overlay de firma para esta pagina

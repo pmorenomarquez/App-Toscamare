@@ -204,8 +204,9 @@ export default function PedidosView() {
                 border: "1px solid var(--border-2)",
                 borderRadius: "var(--r2)",
                 color: "var(--text-1)",
-                fontSize: 13,
-                width: 240,
+                fontSize: 15,
+                width: 280,
+                height: 44,
               }}
             />
             <div
@@ -237,7 +238,7 @@ export default function PedidosView() {
           )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <p style={{ fontSize: 12, color: "var(--text-4)" }}>
+          <p style={{ fontSize: 14, color: "var(--text-4)" }}>
             {filtered.length} pedido{filtered.length !== 1 ? "s" : ""}
             {isAdmin &&
               adminViewAs &&
@@ -275,7 +276,7 @@ export default function PedidosView() {
                   background: "var(--bg-2)",
                   border: "1px solid var(--border-1)",
                   borderRadius: "var(--r3)",
-                  padding: "16px 20px",
+                  padding: "24px 28px",
                   transition: ".15s var(--ease)",
                   borderLeft: "3px solid " + est.color,
                 }}
@@ -307,7 +308,7 @@ export default function PedidosView() {
                       <code
                         style={{
                           fontFamily: "var(--mono)",
-                          fontSize: 13,
+                          fontSize: 15,
                           fontWeight: 500,
                           color: est.color,
                         }}
@@ -323,7 +324,7 @@ export default function PedidosView() {
                       </Badge>
                     </div>
                     <p
-                      style={{ fontSize: 14, fontWeight: 500, marginBottom: 3 }}
+                      style={{ fontSize: 17, fontWeight: 500, marginBottom: 3 }}
                     >
                       {p.cliente}
                     </p>
@@ -337,7 +338,7 @@ export default function PedidosView() {
                     >
                       <span
                         style={{
-                          fontSize: 11,
+                          fontSize: 13,
                           color: "var(--text-4)",
                           display: "flex",
                           alignItems: "center",
@@ -350,7 +351,7 @@ export default function PedidosView() {
                       {p.pdf_ruta && (
                         <span
                           style={{
-                            fontSize: 11,
+                            fontSize: 13,
                             color: "var(--text-4)",
                             display: "flex",
                             alignItems: "center",
@@ -362,7 +363,7 @@ export default function PedidosView() {
                         </span>
                       )}
                       <span style={{
-                        fontSize: 10, color: est.color, fontWeight: 500,
+                        fontSize: 12, color: est.color, fontWeight: 500,
                         display: "flex", alignItems: "center", gap: 4,
                       }}>
                         <SVG name={ROLE_META[est.role]?.icon || "user"} size={11} color={est.color} />

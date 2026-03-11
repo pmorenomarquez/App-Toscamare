@@ -1,6 +1,6 @@
 import SVG from './SVG';
 
-const SIZES = { sm: { padding:'5px 12px', fontSize:12 }, md: { padding:'8px 16px', fontSize:13 }, lg: { padding:'11px 22px', fontSize:15 } };
+const SIZES = { sm: { padding:'8px 16px', fontSize:14 }, md: { padding:'12px 20px', fontSize:15 }, lg: { padding:'14px 28px', fontSize:17 } };
 
 export default function Btn({ children, variant='secondary', size='md', icon, danger, disabled, onClick, style:s, ...rest }) {
   const vars = {
