@@ -23,6 +23,8 @@ OCR_TEXT_TIMEOUT = int(os.getenv('OCR_TEXT_TIMEOUT', '45'))
 OCR_DATA_TIMEOUT = int(os.getenv('OCR_DATA_TIMEOUT', '25'))
 OCR_OSD_TIMEOUT = int(os.getenv('OCR_OSD_TIMEOUT', '5'))
 OCR_USE_OSD = _env_bool('OCR_USE_OSD', default=False)
+OCR_PRIMARY_LANG = os.getenv('OCR_PRIMARY_LANG', 'spa')
+OCR_PRIMARY_MIN_CHARS = int(os.getenv('OCR_PRIMARY_MIN_CHARS', '120'))
 
 
 def get_ocr_runtime_info(required_langs=None):
@@ -171,13 +173,31 @@ def process_image_with_ocr(image_path, lang='spa+por', timeout_sec=None, use_osd
     # OCR directo con configuración rápido
     custom_config = r'--oem 3 --psm 6'
     try:
-        tesseract_start = time.time()
-        print(f"[OCR][process_image_with_ocr] OCR start image={image_path} config={custom_config}")
-        text = pytesseract.image_to_string(image, lang=lang, config=custom_config, timeout=timeout_sec)
+        # Fast pass: use a single language first (usually much faster on low CPU).
+        # Fallback to requested multi-language only if result is too short.
+        first_lang = OCR_PRIMARY_LANG if '+' in lang else lang
+
+        first_start = time.time()
+        print(f"[OCR][process_image_with_ocr] OCR start image={image_path} lang={first_lang} config={custom_config}")
+        text = pytesseract.image_to_string(image, lang=first_lang, config=custom_config, timeout=timeout_sec)
         print(
-            f"[OCR][process_image_with_ocr] OCR done image={image_path} "
-            f"elapsed={time.time()-tesseract_start:.2f}s chars={len(text)} total={time.time()-step_start:.2f}s"
+            f"[OCR][process_image_with_ocr] OCR done image={image_path} lang={first_lang} "
+            f"elapsed={time.time()-first_start:.2f}s chars={len(text)}"
         )
+
+        if '+' in lang and len((text or '').strip()) < OCR_PRIMARY_MIN_CHARS:
+            fallback_start = time.time()
+            print(
+                f"[OCR][process_image_with_ocr] OCR fallback start image={image_path} "
+                f"lang={lang} reason=short_text({len((text or '').strip())}<{OCR_PRIMARY_MIN_CHARS})"
+            )
+            text = pytesseract.image_to_string(image, lang=lang, config=custom_config, timeout=timeout_sec)
+            print(
+                f"[OCR][process_image_with_ocr] OCR fallback done image={image_path} lang={lang} "
+                f"elapsed={time.time()-fallback_start:.2f}s chars={len(text)}"
+            )
+
+        print(f"[OCR][process_image_with_ocr] TOTAL image={image_path} elapsed={time.time()-step_start:.2f}s")
         return text
     except Exception as e:
         print(f"[OCR][process_image_with_ocr][ERROR] image={image_path} elapsed={time.time()-step_start:.2f}s error={e}")
