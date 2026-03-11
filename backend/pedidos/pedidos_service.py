@@ -71,7 +71,7 @@ class PedidosService:
         método ya está protegida por autenticación).
         """
         pedido = (
-            supabase
+            supabase_admin
             .table("pedidos")
             .select("*")
             .eq("id", pedido_id)
