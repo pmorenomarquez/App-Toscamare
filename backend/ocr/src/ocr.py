@@ -1,5 +1,6 @@
 import os
 import shutil
+import time
 import pytesseract
 from PIL import Image, ImageOps
 
@@ -117,6 +118,8 @@ def process_image_with_ocr(image_path, lang='spa+por'):
         Texto extraído de la imagen
     """
     image = Image.open(image_path)
+    step_start = time.time()
+    print(f"[OCR][process_image_with_ocr] START image={image_path} lang={lang}")
 
     # Aplicar transpose EXIF primero
     try:
@@ -126,15 +129,21 @@ def process_image_with_ocr(image_path, lang='spa+por'):
 
     # Si está en formato landscape, rotamos 90° para ponerlo en portrait
     if image.width > image.height:
+        print(f"[OCR][process_image_with_ocr] rotate portrait width={image.width} height={image.height}")
         image = image.rotate(90, expand=True)
 
     # Intentar detectar rotación 180 usando OSD (rápido)
     try:
+        osd_start = time.time()
+        print(f"[OCR][process_image_with_ocr] OSD start image={image_path}")
         osd = pytesseract.image_to_osd(image, lang=lang)
+        print(f"[OCR][process_image_with_ocr] OSD done image={image_path} elapsed={time.time()-osd_start:.2f}s")
         rot = _parse_osd_rotation(osd)
         if rot == 180:
             image = image.rotate(180, expand=True)
+            print(f"[OCR][process_image_with_ocr] OSD rotate=180 image={image_path}")
     except:
+        print(f"[OCR][process_image_with_ocr] OSD skipped/fail image={image_path}")
         pass
 
     # Convertir a RGB si no lo es
@@ -144,10 +153,16 @@ def process_image_with_ocr(image_path, lang='spa+por'):
     # OCR directo con configuración rápido
     custom_config = r'--oem 3 --psm 6'
     try:
+        tesseract_start = time.time()
+        print(f"[OCR][process_image_with_ocr] OCR start image={image_path} config={custom_config}")
         text = pytesseract.image_to_string(image, lang=lang, config=custom_config)
+        print(
+            f"[OCR][process_image_with_ocr] OCR done image={image_path} "
+            f"elapsed={time.time()-tesseract_start:.2f}s chars={len(text)} total={time.time()-step_start:.2f}s"
+        )
         return text
     except Exception as e:
-        print(f"Error en OCR: {e}")
+        print(f"[OCR][process_image_with_ocr][ERROR] image={image_path} elapsed={time.time()-step_start:.2f}s error={e}")
         return ""
 
 def _parse_osd_rotation(osd_text):
@@ -181,6 +196,8 @@ def get_ocr_data(image_path, lang='eng', config=None):
         Dict con información detallada del OCR
     """
     image = Image.open(image_path)
+    step_start = time.time()
+    print(f"[OCR][get_ocr_data] START image={image_path} lang={lang}")
     try:
         image = ImageOps.exif_transpose(image)
     except:
@@ -188,6 +205,7 @@ def get_ocr_data(image_path, lang='eng', config=None):
 
     # Si la imagen viene en landscape, rotar para portrait (igual que en process_image)
     if image.width > image.height:
+        print(f"[OCR][get_ocr_data] rotate portrait width={image.width} height={image.height}")
         image = image.rotate(90, expand=True)
 
     if image.mode != 'RGB':
@@ -196,12 +214,20 @@ def get_ocr_data(image_path, lang='eng', config=None):
     try:
         if config is None:
             config = r'--oem 3 --psm 6'
+        data_start = time.time()
+        print(f"[OCR][get_ocr_data] image_to_data start image={image_path} config={config}")
         data = pytesseract.image_to_data(
             image,
             lang=lang,
             config=config,
             output_type=pytesseract.Output.DICT
         )
+        words = len(data.get('text', [])) if isinstance(data, dict) else -1
+        print(
+            f"[OCR][get_ocr_data] image_to_data done image={image_path} "
+            f"elapsed={time.time()-data_start:.2f}s words={words} total={time.time()-step_start:.2f}s"
+        )
         return data
-    except:
+    except Exception as e:
+        print(f"[OCR][get_ocr_data][ERROR] image={image_path} elapsed={time.time()-step_start:.2f}s error={e}")
         return None

@@ -4,6 +4,7 @@ import uuid
 import tempfile
 import shutil
 import base64
+import time
 from pathlib import Path
 
 # OCR imports (usa el paquete local `ocr/src`)
@@ -206,6 +207,7 @@ class PedidosService:
 
         # Procesar OCR para extraer productos del PDF
         try:
+            ocr_total_start = time.time()
             print(f"[OCR] Iniciando procesamiento OCR para pedido {pedido_id}")
             print(f"[OCR] archivo temporal: {tmp_pdf_path}")
 
@@ -215,7 +217,10 @@ class PedidosService:
 
             # Convertir PDF a imágenes
             try:
+                convert_start = time.time()
+                print(f"[OCR] convert_pdf_to_images START pedido={pedido_id}")
                 image_files = convert_pdf_to_images(tmp_pdf_path, tmp_images_dir)
+                print(f"[OCR] convert_pdf_to_images DONE pedido={pedido_id} elapsed={time.time()-convert_start:.2f}s")
             except Exception as e:
                 print(f"[OCR][ERROR] error al convertir PDF a imágenes: {e}")
                 image_files = []
@@ -227,10 +232,14 @@ class PedidosService:
             # Ejecutar OCR sobre cada imagen y recolectar texto y datos
             all_text = ""
             ocr_data_list = []
-            for img in image_files:
+            for idx, img in enumerate(image_files, start=1):
+                page_start = time.time()
+                print(f"[OCR] Página {idx}/{len(image_files)} START img={img}")
                 try:
+                    txt_start = time.time()
+                    print(f"[OCR] process_image_with_ocr START img={img}")
                     t = process_image_with_ocr(img)
-                    print(f"[OCR] OCR texto longitud ({img}): {len(t)}")
+                    print(f"[OCR] process_image_with_ocr DONE img={img} elapsed={time.time()-txt_start:.2f}s chars={len(t)}")
                 except Exception as e:
                     print(f"[OCR][ERROR] error en process_image_with_ocr para {img}: {e}")
                     t = ""
@@ -238,12 +247,21 @@ class PedidosService:
                 all_text += t + "\n"
 
                 try:
+                    data_start = time.time()
+                    print(f"[OCR] get_ocr_data START img={img}")
                     data = get_ocr_data(img, lang='spa+por')
                     if data:
-                        print(f"[OCR] get_ocr_data returned words: {len(data.get('text', [])) if isinstance(data, dict) else 'n/a'}")
+                        print(
+                            f"[OCR] get_ocr_data DONE img={img} elapsed={time.time()-data_start:.2f}s "
+                            f"words={len(data.get('text', [])) if isinstance(data, dict) else 'n/a'}"
+                        )
                         ocr_data_list.append(data)
+                    else:
+                        print(f"[OCR] get_ocr_data DONE img={img} elapsed={time.time()-data_start:.2f}s result=None")
                 except Exception as e:
                     print(f"[OCR][ERROR] error en get_ocr_data para {img}: {e}")
+
+                print(f"[OCR] Página {idx}/{len(image_files)} DONE img={img} elapsed={time.time()-page_start:.2f}s")
 
             # Extraer productos del albarán
             try:
@@ -276,6 +294,8 @@ class PedidosService:
                         print(f"[OCR][ERROR] Error al insertar producto: {e}")
             else:
                 print(f"[OCR] WARNING: No se extrajeron productos del PDF")
+
+            print(f"[OCR] Pipeline completo pedido={pedido_id} elapsed={time.time()-ocr_total_start:.2f}s")
 
         except Exception as e:
             # No abortar la creación del pedido si OCR falla; registrar si es necesario
