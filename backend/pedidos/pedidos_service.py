@@ -1,5 +1,6 @@
 from database.supabase_client_admin import supabase_admin
 from datetime import datetime
+import os
 import uuid
 import tempfile
 import shutil
@@ -217,9 +218,10 @@ class PedidosService:
 
             # Convertir PDF a imágenes
             try:
+                ocr_dpi = int(os.getenv('OCR_DPI', '220'))
                 convert_start = time.time()
-                print(f"[OCR] convert_pdf_to_images START pedido={pedido_id}")
-                image_files = convert_pdf_to_images(tmp_pdf_path, tmp_images_dir)
+                print(f"[OCR] convert_pdf_to_images START pedido={pedido_id} dpi={ocr_dpi}")
+                image_files = convert_pdf_to_images(tmp_pdf_path, tmp_images_dir, dpi=ocr_dpi)
                 print(f"[OCR] convert_pdf_to_images DONE pedido={pedido_id} elapsed={time.time()-convert_start:.2f}s")
             except Exception as e:
                 print(f"[OCR][ERROR] error al convertir PDF a imágenes: {e}")
