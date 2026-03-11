@@ -1,17 +1,15 @@
 import { createContext, useState, useCallback, useRef, useMemo, useEffect } from 'react';
 import * as api from '@/utils/api';
-import { ROLE_META } from '@/config/constants';
 
 export const AppContext = createContext(null);
 
 export function AppProvider({ children }) {
   const [pedidos, setPedidos] = useState([]);
-  const [historial, setHistorial] = useState([]);
   const [usuarios, setUsuarios] = useState([]);
-  const [logActividad, setLogActividad] = useState([]);
   const [session, setSession] = useState(null);
   const [toast, setToast] = useState(null);
-  const [loading, setLoading] = useState(true); // starts true while checking auth
+  const [loading, setLoading] = useState(true);
+  const [adminViewAs, setAdminViewAs] = useState(null); // admin role switcher
   const toastTimer = useRef(null);
 
   const showToast = useCallback((msg, type = 'success') => {
@@ -24,12 +22,10 @@ export function AppProvider({ children }) {
 
   useEffect(() => {
     const init = async () => {
-      // 1. Check if redirected from OAuth callback with ?token=
       const params = new URLSearchParams(window.location.search);
       const tokenFromUrl = params.get('token');
 
       if (tokenFromUrl) {
-        // Clean URL
         window.history.replaceState({}, document.title, '/');
         try {
           const user = await api.handleOAuthCallback(tokenFromUrl);
@@ -41,7 +37,6 @@ export function AppProvider({ children }) {
         return;
       }
 
-      // 2. Try to restore session from localStorage
       try {
         const user = await api.restoreSession();
         if (user) {
@@ -58,17 +53,10 @@ export function AppProvider({ children }) {
 
   // ── Data loading ───────────────────────────────────────────
 
-  const loadPedidos = useCallback(async (params = {}) => {
+  const loadPedidos = useCallback(async () => {
     try {
-      const data = await api.fetchPedidos(params);
+      const data = await api.fetchPedidos();
       setPedidos(data);
-    } catch (e) { showToast(e.message, 'error'); }
-  }, [showToast]);
-
-  const loadHistorial = useCallback(async () => {
-    try {
-      const data = await api.fetchPedidos({ finalizado: true });
-      setHistorial(data);
     } catch (e) { showToast(e.message, 'error'); }
   }, [showToast]);
 
@@ -79,26 +67,17 @@ export function AppProvider({ children }) {
     } catch { /* admin only, ignore for other roles */ }
   }, []);
 
-  const loadLog = useCallback(async (tipo) => {
-    try {
-      const data = await api.fetchLog(tipo);
-      setLogActividad(data);
-    } catch { /* admin only */ }
-  }, []);
-
   // ── Auth actions ───────────────────────────────────────────
 
   const loginMicrosoft = useCallback(() => {
-    api.loginMicrosoft(); // redirects to backend → Microsoft
+    api.loginMicrosoft();
   }, []);
 
   const logout = useCallback(() => {
     api.logout();
     setSession(null);
     setPedidos([]);
-    setHistorial([]);
     setUsuarios([]);
-    setLogActividad([]);
   }, []);
 
   // Load pedidos when session is established
@@ -110,11 +89,12 @@ export function AppProvider({ children }) {
 
   const ctx = useMemo(
     () => ({
-      pedidos, setPedidos, historial, setHistorial, usuarios, logActividad,
+      pedidos, setPedidos, usuarios,
       session, loginMicrosoft, logout, showToast, toast, loading,
-      loadPedidos, loadHistorial, loadUsuarios, loadLog,
+      loadPedidos, loadUsuarios,
+      adminViewAs, setAdminViewAs,
     }),
-    [pedidos, historial, usuarios, logActividad, session, loginMicrosoft, logout, showToast, toast, loading, loadPedidos, loadHistorial, loadUsuarios, loadLog]
+    [pedidos, usuarios, session, loginMicrosoft, logout, showToast, toast, loading, loadPedidos, loadUsuarios, adminViewAs]
   );
 
   return <AppContext.Provider value={ctx}>{children}</AppContext.Provider>;

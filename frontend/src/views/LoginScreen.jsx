@@ -23,7 +23,7 @@ export default function LoginScreen() {
     <div style={{ minHeight: '100vh', display: 'flex', background: 'var(--bg-0)' }}>
       {/* Left panel — branding */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center',
-        alignItems: 'center', background: 'linear-gradient(145deg, #0E1017 0%, #14161E 50%, #0E1017 100%)',
+        alignItems: 'center', background: 'linear-gradient(145deg, var(--bg-0) 0%, var(--bg-2) 50%, var(--bg-0) 100%)',
         borderRight: '1px solid var(--border-1)', position: 'relative', overflow: 'hidden' }}>
         <div style={{ position: 'absolute', inset: 0, opacity: .04,
           backgroundImage: 'linear-gradient(var(--accent) 1px, transparent 1px), linear-gradient(90deg, var(--accent) 1px, transparent 1px)',
@@ -69,13 +69,13 @@ export default function LoginScreen() {
           {/* Microsoft OAuth button */}
           <button onClick={loginMicrosoft} style={{
             width: '100%', padding: '14px 20px', borderRadius: 'var(--r2)',
-            background: '#2F2F2F', border: '1px solid #555', color: '#fff',
+            background: 'var(--bg-3)', border: '1px solid var(--border-3)', color: 'var(--text-1)',
             fontSize: 15, fontWeight: 500, cursor: 'pointer', display: 'flex',
             alignItems: 'center', justifyContent: 'center', gap: 12,
             transition: '.15s var(--ease)',
           }}
-            onMouseEnter={e => e.currentTarget.style.background = '#404040'}
-            onMouseLeave={e => e.currentTarget.style.background = '#2F2F2F'}>
+            onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-4)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'var(--bg-3)'}>
             <svg width="20" height="20" viewBox="0 0 21 21">
               <rect x="1" y="1" width="9" height="9" fill="#f25022" />
               <rect x="11" y="1" width="9" height="9" fill="#7fba00" />

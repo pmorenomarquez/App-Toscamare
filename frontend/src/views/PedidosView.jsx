@@ -1,196 +1,525 @@
-import { useState, useMemo, useContext, useEffect } from 'react';
-import { AppContext } from '@/context/AppContext';
-import { ROLES, ROLE_META, ESTADOS, PRIORIDAD_META } from '@/config/constants';
-import { timeAgo } from '@/utils/helpers';
-import { SVG, Btn, Badge, Select, Modal, EmptyState } from '@/components/ui';
-import PedidoFormModal from '@/components/pedidos/PedidoFormModal';
-import PedidoDetailModal from '@/components/pedidos/PedidoDetailModal';
-import * as api from '@/utils/api';
+import { useState, useMemo, useContext, useEffect } from "react";
+import { AppContext } from "@/context/AppContext";
+import { ROLES, ROLE_META, ESTADOS } from "@/config/constants";
+import { timeAgo } from "@/utils/helpers";
+import { SVG, Btn, Badge, Select, EmptyState } from "@/components/ui";
+import PedidoFormModal from "@/components/pedidos/PedidoFormModal";
+import PedidoDetailModal from "@/components/pedidos/PedidoDetailModal";
+import FirmaModal from "@/components/pedidos/FirmaModal";
+import SignatureModal from "@/components/pedidos/SignatureModal";
+import * as api from "@/utils/api";
 
 export default function PedidosView() {
-  const { pedidos, session, showToast, loadPedidos } = useContext(AppContext);
-  const [search, setSearch] = useState('');
-  const [filterPri, setFilterPri] = useState('todos');
-  const [filterEstado, setFilterEstado] = useState('rol');
+  const { pedidos, session, showToast, loadPedidos, adminViewAs } =
+    useContext(AppContext);
+  const [search, setSearch] = useState("");
+  const [filterEstado, setFilterEstado] = useState("todos");
   const [showCreate, setShowCreate] = useState(false);
-  const [editPedido, setEditPedido] = useState(null);
   const [detailPedido, setDetailPedido] = useState(null);
   const [confirmId, setConfirmId] = useState(null);
+  const [confirmAction, setConfirmAction] = useState(null); // 'advance' | 'rollback' | 'delete'
   const [actionLoading, setActionLoading] = useState(null);
+  const [firmaPedido, setFirmaPedido] = useState(null);
 
-  const isAdmin = session.user.rol === ROLES.ADMIN;
-  const userEstado = ROLE_META[session.user.rol].estadoVisible;
+  const userRol = session.user.rol;
+  const effectiveRol = adminViewAs || userRol;
+  const isAdminOriginal = userRol === ROLES.ADMIN;
+  const isAdmin = effectiveRol === ROLES.ADMIN;
+  const isOficina = effectiveRol === ROLES.OFICINA;
+  const isModerator = isAdmin || isOficina;
 
-  // Oficina ve estado 3 (para finalizar) además de poder crear
-  const getVisibleEstados = () => {
-    if (isAdmin) return null; // all
-    if (session.user.rol === ROLES.OFICINA) return [3]; // solo ve estado 3 para finalizar
-    return [userEstado];
-  };
-
-  const visibleEstados = getVisibleEstados();
+  useEffect(() => {
+    setFilterEstado("todos");
+  }, [adminViewAs]);
 
   const filtered = useMemo(() => {
-    let list = pedidos;
-    if (filterEstado === 'rol' && visibleEstados) {
-      list = list.filter(p => visibleEstados.includes(p.estado_actual));
-    } else if (filterEstado !== 'rol' && filterEstado !== 'todos') {
-      list = list.filter(p => p.estado_actual === parseInt(filterEstado));
+    // Only show active pedidos (estado 0-3), not completados (4)
+    let list = pedidos.filter((p) => p.estado_actual <= 3);
+
+    // When admin views as a specific role, filter to that role's estado
+    if (adminViewAs) {
+      const estadoVisible = ROLE_META[adminViewAs]?.estadoVisible;
+      if (estadoVisible != null) {
+        list = list.filter((p) => p.estado_actual === estadoVisible);
+      }
     }
-    if (filterPri !== 'todos') list = list.filter(p => p.prioridad === filterPri);
+
+    // Moderators can further filter by estado dropdown
+    if (isModerator && filterEstado !== "todos") {
+      list = list.filter((p) => p.estado_actual === parseInt(filterEstado));
+    }
     if (search) {
       const q = search.toLowerCase();
-      list = list.filter(p => p.codigo.toLowerCase().includes(q) || p.cliente.toLowerCase().includes(q));
+      list = list.filter(
+        (p) =>
+          p.codigo.toLowerCase().includes(q) ||
+          p.cliente.toLowerCase().includes(q),
+      );
     }
     return list;
-  }, [pedidos, filterEstado, filterPri, search, visibleEstados]);
+  }, [pedidos, filterEstado, search, isModerator, isAdmin, adminViewAs]);
 
   const advanceOrder = async (pedidoId) => {
-    const pedido = pedidos.find(p => p.id === pedidoId);
+    const pedido = pedidos.find((p) => p.id === pedidoId);
     if (!pedido) return;
 
     setActionLoading(pedidoId);
     try {
-      if (pedido.estado_actual === 3) {
-        // Oficina finaliza
-        await api.finalizePedido(pedidoId);
-        showToast(pedido.codigo + ' finalizado');
-      } else {
-        await api.advancePedido(pedidoId);
-        const nextLabel = ESTADOS[pedido.estado_actual + 1]?.label || 'Siguiente';
-        showToast(pedido.codigo + ' → ' + nextLabel);
-      }
+      await api.advancePedido(pedidoId);
+      const nextLabel = ESTADOS[pedido.estado_actual + 1]?.label || "Completado";
+      showToast(pedido.codigo + " → " + nextLabel);
       await loadPedidos();
     } catch (e) {
-      showToast(e.message, 'error');
+      showToast(e.message, "error");
     } finally {
       setActionLoading(null);
       setConfirmId(null);
+      setConfirmAction(null);
     }
   };
 
-  const handleExportCSV = async (pedido) => {
+  const rollbackOrder = async (pedidoId) => {
+    const pedido = pedidos.find((p) => p.id === pedidoId);
+    if (!pedido) return;
+
+    setActionLoading(pedidoId);
     try {
-      await api.exportCSV(pedido.id);
-      showToast('CSV descargado');
+      await api.rollbackPedido(pedidoId);
+      const prevLabel = ESTADOS[pedido.estado_actual - 1]?.label || "Anterior";
+      showToast(pedido.codigo + " ← " + prevLabel);
+      await loadPedidos();
     } catch (e) {
-      showToast(e.message, 'error');
+      showToast(e.message, "error");
+    } finally {
+      setActionLoading(null);
+      setConfirmId(null);
+      setConfirmAction(null);
     }
   };
 
   const handleDelete = async (pedido) => {
-    if (!window.confirm('¿Eliminar ' + pedido.codigo + '?')) return;
+    setActionLoading(pedido.id);
     try {
       await api.deletePedido(pedido.id);
-      showToast(pedido.codigo + ' eliminado', 'info');
+      showToast(pedido.codigo + " eliminado");
       await loadPedidos();
     } catch (e) {
-      showToast(e.message, 'error');
+      showToast(e.message, "error");
+    } finally {
+      setActionLoading(null);
+      setConfirmId(null);
+      setConfirmAction(null);
     }
   };
 
-  const canAct = (p) => {
-    if (isAdmin) return true;
-    return ESTADOS[p.estado_actual]?.role === session.user.rol;
+  const handleExportExcel = async (pedido) => {
+    try {
+      await api.exportExcel(pedido.id);
+      showToast("Excel descargado");
+    } catch (e) {
+      showToast(e.message, "error");
+    }
   };
 
-  const canCreate = session.user.rol === ROLES.OFICINA || isAdmin;
-  const canDelete = (p) => isAdmin || (session.user.rol === ROLES.OFICINA && p.estado_actual === 0);
+  // Advance: admin/oficina can advance any estado, each role only their own
+  const canAdvance = (p) => {
+    if (isAdmin || isOficina) return true;
+    return ESTADOS[p.estado_actual]?.role === effectiveRol;
+  };
+
+  // Rollback: send pedido back one estado for corrections
+  const canRollback = (p) => {
+    if (p.estado_actual <= 0) return false;
+    if (isAdmin || isOficina) return true;
+    return ESTADOS[p.estado_actual]?.role === effectiveRol;
+  };
+
+  const canSign = (p) => {
+    return p.estado_actual === 2 && (effectiveRol === ROLES.TRANSPORTISTA || isModerator);
+  };
+
+  const canExport = (p) => {
+    return p.estado_actual === 3 && isModerator;
+  };
+
+  const showAdvanceBtn = (p) => {
+    return p.estado_actual <= 3 && canAdvance(p);
+  };
+
+  const canCreate = isModerator;
+
+  // Function to determine if transportista is trying to confirm and has valid signature in localstorage
+  const handleConfirmCarga = async (pedidoId) => {
+    const firmaGuardada = localStorage.getItem('firma_' + pedidoId);
+    if (!firmaGuardada) {
+      showToast("Es necesario firmar antes de confirmar la carga", "error");
+      return;
+    }
+
+    setActionLoading(pedidoId);
+    try {
+      await api.firmarPedido(pedidoId, firmaGuardada);
+      localStorage.removeItem('firma_' + pedidoId);
+      
+      const pedido = pedidos.find(p => p.id === pedidoId);
+      showToast(pedido.codigo + " firmado. Revisa el PDF antes de completar la carga.", "info");
+      await loadPedidos();
+    } catch (e) {
+      showToast(e.message || "Error al completar flujo", "error");
+    } finally {
+      setActionLoading(null);
+    }
+  };
 
   return (
-    <div style={{ padding:28 }}>
+    <div style={{ padding: 28 }}>
       {/* Toolbar */}
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:20, flexWrap:'wrap', gap:12 }}>
-        <div style={{ display:'flex', alignItems:'center', gap:12, flexWrap:'wrap' }}>
-          <div style={{ position:'relative' }}>
-            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar pedidos..."
-              style={{ padding:'8px 12px 8px 34px', background:'var(--bg-2)', border:'1px solid var(--border-2)',
-                borderRadius:'var(--r2)', color:'var(--text-1)', fontSize:13, width:240 }} />
-            <div style={{ position:'absolute', top:'50%', left:11, transform:'translateY(-50%)', pointerEvents:'none' }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: 16,
+          flexWrap: "wrap",
+          gap: 12,
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            flexWrap: "wrap",
+          }}
+        >
+          <div style={{ position: "relative" }}>
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Buscar pedidos..."
+              style={{
+                padding: "8px 12px 8px 34px",
+                background: "var(--bg-2)",
+                border: "1px solid var(--border-2)",
+                borderRadius: "var(--r2)",
+                color: "var(--text-1)",
+                fontSize: 15,
+                width: 280,
+                height: 44,
+              }}
+            />
+            <div
+              style={{
+                position: "absolute",
+                top: "50%",
+                left: 11,
+                transform: "translateY(-50%)",
+                pointerEvents: "none",
+              }}
+            >
               <SVG name="search" size={14} color="var(--text-4)" />
             </div>
           </div>
-          <Select value={filterPri} onChange={e=>setFilterPri(e.target.value)} options={[
-            {value:'todos',label:'Todas prioridades'},{value:'urgente',label:'Urgente'},{value:'alta',label:'Alta'},{value:'media',label:'Media'},{value:'baja',label:'Baja'}
-          ]} />
-          {isAdmin && <Select value={filterEstado} onChange={e=>setFilterEstado(e.target.value)} options={[
-            {value:'todos',label:'Todos los estados'}, ...Object.entries(ESTADOS).map(([k,v])=>({value:k,label:v.label}))
-          ]} />}
+          {isModerator && !adminViewAs && (
+            <Select
+              value={filterEstado}
+              onChange={(e) => setFilterEstado(e.target.value)}
+              options={[
+                { value: "todos", label: "Todos los estados" },
+                ...Object.entries(ESTADOS)
+                  .filter(([k]) => parseInt(k) <= 3)
+                  .map(([k, v]) => ({
+                    value: k,
+                    label: v.label,
+                  })),
+              ]}
+            />
+          )}
         </div>
-        {canCreate && (
-          <Btn variant="primary" icon="plus" onClick={()=>{setEditPedido(null);setShowCreate(true)}}>Nuevo Pedido</Btn>
-        )}
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <p style={{ fontSize: 14, color: "var(--text-4)" }}>
+            {filtered.length} pedido{filtered.length !== 1 ? "s" : ""}
+            {isAdmin &&
+              adminViewAs &&
+              " — Vista: " + (ROLE_META[adminViewAs]?.label || "")}
+          </p>
+          {canCreate && (
+            <Btn
+              variant="primary"
+              icon="plus"
+              onClick={() => setShowCreate(true)}
+            >
+              Nuevo Pedido
+            </Btn>
+          )}
+        </div>
       </div>
 
-      <p style={{ fontSize:12, color:'var(--text-4)', marginBottom:14 }}>
-        {filtered.length} pedido{filtered.length!==1?'s':''}
-        {!isAdmin && visibleEstados && (' en ' + visibleEstados.map(e => ESTADOS[e]?.label).join(', '))}
-      </p>
-
       {filtered.length === 0 ? (
-        <EmptyState icon="check" title="Sin pedidos pendientes" subtitle={search?'Intenta otro término':'Tu bandeja está vacía'} />
+        <EmptyState
+          icon="check"
+          title="Sin pedidos pendientes"
+          subtitle={search ? "Intenta otro termino" : "Tu bandeja esta vacia"}
+        />
       ) : (
-        <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {filtered.map((p, i) => {
-            const est = ESTADOS[p.estado_actual], pri = PRIORIDAD_META[p.prioridad];
+            const est = ESTADOS[p.estado_actual];
             const isConfirming = confirmId === p.id;
             const isLoading = actionLoading === p.id;
             return (
-              <div key={p.id} className={'anim-fade d'+Math.min(i+1,8)} style={{
-                background:'var(--bg-2)', border:'1px solid var(--border-1)', borderRadius:'var(--r3)',
-                padding:'16px 20px', transition:'.15s var(--ease)', borderLeft:'3px solid '+est.color }}
-                onMouseEnter={e=>e.currentTarget.style.borderColor='var(--border-3)'}
-                onMouseLeave={e=>{e.currentTarget.style.borderColor='var(--border-1)';e.currentTarget.style.borderLeftColor=est.color}}>
-                <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:16 }}>
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:6 }}>
-                      <code style={{ fontFamily:'var(--mono)', fontSize:13, fontWeight:500, color:est.color }}>{p.codigo}</code>
-                      <Badge color={est.color} bg={est.bg} border={est.borderColor}>{est.label}</Badge>
-                      <Badge color={pri.color} bg={pri.bg} border={pri.border}>{pri.label}</Badge>
+              <div
+                key={p.id}
+                className={"anim-fade d" + Math.min(i + 1, 8)}
+                style={{
+                  background: "var(--bg-2)",
+                  border: "1px solid var(--border-1)",
+                  borderRadius: "var(--r3)",
+                  padding: "24px 28px",
+                  transition: ".15s var(--ease)",
+                  borderLeft: "3px solid " + est.color,
+                }}
+                onMouseEnter={(e) =>
+                  (e.currentTarget.style.borderColor = "var(--border-3)")
+                }
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = "var(--border-1)";
+                  e.currentTarget.style.borderLeftColor = est.color;
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "flex-start",
+                    justifyContent: "space-between",
+                    gap: 16,
+                  }}
+                >
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                        marginBottom: 6,
+                      }}
+                    >
+                      <code
+                        style={{
+                          fontFamily: "var(--mono)",
+                          fontSize: 15,
+                          fontWeight: 500,
+                          color: est.color,
+                        }}
+                      >
+                        {p.codigo}
+                      </code>
+                      <Badge
+                        color={est.color}
+                        bg={est.bg}
+                        border={est.borderColor}
+                      >
+                        {est.label}
+                      </Badge>
                     </div>
-                    <p style={{ fontSize:14, fontWeight:500, marginBottom:3 }}>{p.cliente}</p>
-                    <div style={{ display:'flex', alignItems:'center', gap:14, marginTop:8 }}>
-                      <span style={{ fontSize:11, color:'var(--text-4)', display:'flex', alignItems:'center', gap:4 }}>
-                        <SVG name="clock" size={12} color="var(--text-4)" />{timeAgo(p.fecha_actualizacion)}</span>
-                      <span style={{ fontSize:11, color:'var(--text-4)', display:'flex', alignItems:'center', gap:4 }}>
-                        <SVG name="map" size={12} color="var(--text-4)" />{p.direccion?.split(',')[0]}</span>
-                      {p.pdf_nombre && <span style={{ fontSize:11, color:'var(--text-4)', display:'flex', alignItems:'center', gap:4 }}>
-                        <SVG name="file" size={12} color="var(--text-4)" />PDF</span>}
+                    <p
+                      style={{ fontSize: 17, fontWeight: 500, marginBottom: 3 }}
+                    >
+                      {p.cliente}
+                    </p>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 14,
+                        marginTop: 8,
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontSize: 13,
+                          color: "var(--text-4)",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 4,
+                        }}
+                      >
+                        <SVG name="clock" size={12} color="var(--text-4)" />
+                        {timeAgo(p.fecha_actualizacion)}
+                      </span>
+                      {p.pdf_ruta && (
+                        <span
+                          style={{
+                            fontSize: 13,
+                            color: "var(--text-4)",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 4,
+                          }}
+                        >
+                          <SVG name="file" size={12} color="var(--text-4)" />
+                          PDF
+                        </span>
+                      )}
+                      <span style={{
+                        fontSize: 12, color: est.color, fontWeight: 500,
+                        display: "flex", alignItems: "center", gap: 4,
+                      }}>
+                        <SVG name={ROLE_META[est.role]?.icon || "user"} size={11} color={est.color} />
+                        {ROLE_META[est.role]?.label || est.role}
+                      </span>
                     </div>
                   </div>
-                  <div style={{ display:'flex', alignItems:'center', gap:6, flexShrink:0 }}>
-                    <Btn variant="ghost" size="sm" icon="eye" onClick={()=>setDetailPedido(p)} />
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      flexShrink: 0,
+                    }}
+                  >
+                    <Btn
+                      variant="outline"
+                      size="sm"
+                      icon="eye"
+                      title="Ver detalle del pedido"
+                      onClick={() => setDetailPedido(p)}
+                    >
+                      Ver
+                    </Btn>
 
-                    {/* Export CSV button for oficina at state 3 */}
-                    {p.estado_actual === 3 && canAct(p) && (
-                      <Btn variant="outline" size="sm" icon="download" onClick={() => handleExportCSV(p)}>CSV</Btn>
+                    {/* Export Excel button for oficina/admin at state 3 */}
+                    {canExport(p) && (
+                      <Btn
+                        variant="outline"
+                        size="sm"
+                        icon="download"
+                        onClick={() => handleExportExcel(p)}
+                      >
+                        Descargar Excel
+                      </Btn>
                     )}
 
-                    {canAct(p) && (isConfirming ? (
-                      <div style={{ display:'flex', gap:4 }}>
-                        <Btn variant="ghost" size="sm" onClick={()=>setConfirmId(null)}>No</Btn>
-                        <Btn variant="primary" size="sm" icon="check" disabled={isLoading}
-                          onClick={()=>advanceOrder(p.id)}
-                          style={p.estado_actual===3?{background:'var(--success)'}:{}}>
-                          {isLoading ? '...' : 'Confirmar'}
-                        </Btn>
+                    {/* Confirmation dialog */}
+                    {isConfirming ? (
+                      <div style={{ display: "flex", gap: 4 }}>
+                          <Btn
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setConfirmId(null);
+                              setConfirmAction(null);
+                                                    }}
+                          >
+                            Cancelar
+                          </Btn>
+                          <Btn
+                            variant={
+                              confirmAction === "delete" ? "outline"
+                              : confirmAction === "rollback" ? "outline"
+                              : "primary"
+                            }
+                            size="sm"
+                            icon={
+                              confirmAction === "rollback" ? "chevronL"
+                              : confirmAction === "delete" ? "trash"
+                              : "check"
+                            }
+                            danger={confirmAction === "delete"}
+                            disabled={isLoading}
+                            onClick={() => {
+                              if (confirmAction === "rollback") rollbackOrder(p.id);
+                              else if (confirmAction === "delete") handleDelete(p);
+                              else advanceOrder(p.id);
+                            }}
+                          >
+                            {isLoading ? "..." : confirmAction === "delete" ? "Eliminar" : "Confirmar"}
+                          </Btn>
                       </div>
                     ) : (
-                      <Btn variant="primary" size="sm" icon={p.estado_actual===3?'checkCirc':'chevronR'}
-                        onClick={()=>setConfirmId(p.id)}
-                        style={p.estado_actual===3?{background:'var(--success)'}:{}}>
-                        {est.action}
-                      </Btn>
-                    ))}
+                      <>
+                        {/* Delete button only strictly for the original admin/oficina users */}
+                        {(isAdminOriginal || session.user.rol === ROLES.OFICINA) && !adminViewAs && (
+                          <Btn
+                            variant="outline"
+                            size="sm"
+                            icon="trash"
+                            title="Eliminar pedido"
+                            danger
+                            onClick={() => {
+                              setConfirmId(p.id);
+                              setConfirmAction("delete");
+                            }}
+                          />
+                        )}
 
-                    {canDelete(p) && <>
-                      {p.estado_actual === 0 && session.user.rol === ROLES.OFICINA && (
-                        <Btn variant="ghost" size="sm" icon="edit" onClick={()=>{setEditPedido(p);setShowCreate(true)}} />
-                      )}
-                      <Btn variant="ghost" size="sm" icon="trash" danger onClick={()=>handleDelete(p)} />
-                    </>}
-                    {isAdmin && (
-                      <Btn variant="ghost" size="sm" icon="edit" onClick={()=>{setEditPedido(p);setShowCreate(true)}} />
+                        {/* Rollback button */}
+                        {canRollback(p) && (
+                          <Btn
+                            variant="outline"
+                            size="sm"
+                            icon="chevronL"
+                            onClick={() => {
+                              setConfirmId(p.id);
+                              setConfirmAction("rollback");
+                            }}
+                          >
+                            Devolver
+                          </Btn>
+                        )}
+
+                        {/* Transportista flow at estado 2: Sign -> Confirm */}
+                        {canSign(p) && (!p.pdf_firma || localStorage.getItem('firma_' + p.id)) && (
+                          <>
+                            <Btn
+                              variant={localStorage.getItem('firma_' + p.id) ? "outline" : "primary"}
+                              size="sm"
+                              icon="edit"
+                              style={localStorage.getItem('firma_' + p.id) ? { borderColor: 'var(--success)', color: 'var(--success)' } : {}}
+                              onClick={() => setFirmaPedido(p)}
+                            >
+                              {localStorage.getItem('firma_' + p.id) ? "Ver firma" : "Firmar"}
+                            </Btn>
+                            <Btn
+                              variant="primary"
+                              size="sm"
+                              icon="check"
+                              disabled={!localStorage.getItem('firma_' + p.id) || isLoading}
+                              onClick={() => handleConfirmCarga(p.id)}
+                            >
+                              {isLoading ? "..." : "Confirmar Carga"}
+                            </Btn>
+                          </>
+                        )}
+
+                        {/* Opción de reescribir firma si ya está firmado */}
+                        {canSign(p) && p.pdf_firma && !localStorage.getItem('firma_' + p.id) && (
+                          <Btn
+                            variant="outline"
+                            size="sm"
+                            icon="edit"
+                            style={{ borderColor: 'var(--success)', color: 'var(--success)' }}
+                            onClick={() => setFirmaPedido(p)}
+                          >
+                            Re-firmar
+                          </Btn>
+                        )}
+
+                        {/* Advance state button (hide at estado 2 if canSign is not fulfilled, meaning no pdf_firma on server, or if there's an unconfirmed signature) */}
+                        {showAdvanceBtn(p) && (!canSign(p) || p.pdf_firma) && !localStorage.getItem('firma_' + p.id) && (
+                          <Btn
+                            variant="primary"
+                            size="sm"
+                            icon={p.estado_actual === 3 ? "check" : "chevronR"}
+                            onClick={() => {
+                              setConfirmId(p.id);
+                              setConfirmAction("advance");
+                            }}
+                          >
+                            {p.estado_actual === 2 ? "Completar Carga" : est.action}
+                          </Btn>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
@@ -200,8 +529,18 @@ export default function PedidosView() {
         </div>
       )}
 
-      <PedidoFormModal open={showCreate} onClose={()=>{setShowCreate(false);setEditPedido(null)}} editPedido={editPedido} />
-      <PedidoDetailModal open={!!detailPedido} onClose={()=>setDetailPedido(null)} pedido={detailPedido} onRefresh={loadPedidos} />
+      <PedidoFormModal open={showCreate} onClose={() => setShowCreate(false)} />
+      <PedidoDetailModal
+        open={!!detailPedido}
+        onClose={() => setDetailPedido(null)}
+        pedido={detailPedido}
+        onRefresh={loadPedidos}
+      />
+      <SignatureModal
+        open={!!firmaPedido}
+        onClose={() => setFirmaPedido(null)}
+        pedido={firmaPedido}
+      />
     </div>
   );
 }

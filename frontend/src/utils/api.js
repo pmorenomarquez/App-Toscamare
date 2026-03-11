@@ -1,38 +1,35 @@
 // ═══════════════════════════════════════════════════════════════
-// API Layer — Conecta con el backend Flask del compañero
+// API Layer — Conecta con el backend Flask
 //
 // Auth flow:
 //   1. Frontend redirige a GET /api/login → Microsoft OAuth
 //   2. Backend callback genera JWT, redirige a FRONTEND?token=JWT
 //   3. Frontend captura token de URL, lo guarda en localStorage
 //   4. POST /api/verify-token valida el JWT
-//
-// Endpoints de pedidos apuntan al backend FastAPI de sistema-pedidos
-// (el compañero puede integrarlos en Flask o usar un segundo server)
 // ═══════════════════════════════════════════════════════════════
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
-const API_BASE = BACKEND_URL + '/api';
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5000";
+const API_BASE = BACKEND_URL + "/api";
 
 // ── Token management ─────────────────────────────────────────
 
 export function getStoredToken() {
-  return localStorage.getItem('jwt');
+  return localStorage.getItem("jwt");
 }
 
 function setStoredToken(token) {
-  localStorage.setItem('jwt', token);
+  localStorage.setItem("jwt", token);
 }
 
 export function clearToken() {
-  localStorage.removeItem('jwt');
-  localStorage.removeItem('user');
+  localStorage.removeItem("jwt");
+  localStorage.removeItem("user");
 }
 
 function headers(extra = {}) {
   const h = { ...extra };
   const token = getStoredToken();
-  if (token) h['Authorization'] = 'Bearer ' + token;
+  if (token) h["Authorization"] = "Bearer " + token;
   return h;
 }
 
@@ -47,38 +44,55 @@ async function request(path, opts = {}) {
   if (res.status === 401) {
     clearToken();
     window.location.reload();
-    throw new Error('Sesión expirada');
+    throw new Error("Sesión expirada");
   }
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: 'Error del servidor' }));
-    throw new Error(err.detail || err.error || 'Error');
+    const err = await res
+      .json()
+      .catch(() => ({ detail: "Error del servidor" }));
+    throw new Error(err.detail || err.error || "Error");
   }
 
-  // Handle CSV/blob responses
-  if (res.headers.get('content-type')?.includes('text/csv')) return res;
+  // Handle Excel blob responses
+  const ct = res.headers.get("content-type") || "";
+  if (ct.includes("spreadsheetml") || ct.includes("octet-stream")) {
+    return res;
+  }
 
   return res.json();
 }
 
-// ── Auth (adapted to colleague's Flask backend) ──────────────
+// ── Normalizers ──────────────────────────────────────────────
 
-/**
- * Redirect to Microsoft OAuth via backend
- * The backend handles the full OAuth flow and redirects back with ?token=JWT
- */
-export function loginMicrosoft() {
-  window.location.href = API_BASE + '/login';
+function normalizePedido(p) {
+  return {
+    ...p,
+    id: p.id,
+    codigo: p.id
+      ? "PED-" + String(p.id).slice(0, 8).toUpperCase()
+      : "PED-SIN-ID",
+    cliente: p.cliente_nombre || "",
+    estado_actual:
+      typeof p.estado === "number" ? p.estado : parseInt(p.estado, 10) || 0,
+    pdf_firma: p.pdf_firmado || null,
+    pdf_ruta: p.pdf_firmado || p.pdf_url || null,
+    // DB uses fecha_creacion/fecha_actualizacion (not created_at/updated_at)
+    fecha_creacion: p.fecha_creacion || p.created_at || null,
+    fecha_actualizacion: p.fecha_actualizacion || p.fecha_creacion || null,
+  };
 }
 
-/**
- * Verify a JWT token with the backend
- * Returns { valid: true, user: { user_id, email, nombre, rol } } or throws
- */
+// ── Auth (Microsoft OAuth via Flask backend) ─────────────────
+
+export function loginMicrosoft() {
+  window.location.href = API_BASE + "/login";
+}
+
 export async function verifyToken(token) {
-  const res = await fetch(API_BASE + '/verify-token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+  const res = await fetch(API_BASE + "/verify-token", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ token }),
   });
 
@@ -86,10 +100,9 @@ export async function verifyToken(token) {
 
   if (!data.valid) {
     clearToken();
-    throw new Error('Token inválido');
+    throw new Error("Token inválido");
   }
 
-  // Normalize: backend sends user_id, frontend expects id
   const user = data.user;
   if (user.user_id && !user.id) {
     user.id = user.user_id;
@@ -98,26 +111,20 @@ export async function verifyToken(token) {
   return user;
 }
 
-/**
- * Complete login flow: store token, verify, return user
- */
 export async function handleOAuthCallback(token) {
   setStoredToken(token);
   const user = await verifyToken(token);
-  localStorage.setItem('user', JSON.stringify(user));
+  localStorage.setItem("user", JSON.stringify(user));
   return user;
 }
 
-/**
- * Try to restore session from localStorage
- */
 export async function restoreSession() {
   const token = getStoredToken();
   if (!token) return null;
 
   try {
     const user = await verifyToken(token);
-    localStorage.setItem('user', JSON.stringify(user));
+    localStorage.setItem("user", JSON.stringify(user));
     return user;
   } catch {
     clearToken();
@@ -131,132 +138,138 @@ export function logout() {
 
 // ── Pedidos ──────────────────────────────────────────────────
 
-export function fetchPedidos(params = {}) {
-  const qs = new URLSearchParams();
-  Object.entries(params).forEach(([k, v]) => {
-    if (v != null && v !== '') qs.set(k, v);
-  });
-  return request('/pedidos?' + qs.toString());
+export function fetchPedidos() {
+  return request("/pedidos").then((data) =>
+    Array.isArray(data) ? data.map(normalizePedido) : data,
+  );
 }
 
-export function fetchPedido(id) {
-  return request('/pedidos/' + id);
-}
-
-export function createPedido(data) {
-  return request('/pedidos/', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  });
-}
-
-export function updatePedido(id, data) {
-  return request('/pedidos/' + id, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
+export function createPedido(clienteNombre, pdfFile) {
+  const formData = new FormData();
+  formData.append("cliente_nombre", clienteNombre);
+  formData.append("pdf", pdfFile);
+  return request("/pedidos", {
+    method: "POST",
+    body: formData,
+    // No Content-Type header — browser sets multipart boundary automatically
   });
 }
 
 export function advancePedido(id) {
-  return request('/pedidos/' + id + '/avanzar', { method: 'PUT' });
+  return request("/pedidos/" + id + "/estado", { method: "PATCH" });
 }
 
-export function updateChecklist(id, checklist) {
-  return request('/pedidos/' + id + '/checklist', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(checklist),
-  });
-}
-
-export function finalizePedido(id) {
-  return request('/pedidos/' + id + '/finalizar', { method: 'PUT' });
+export function rollbackPedido(id) {
+  return request("/pedidos/" + id + "/estado/retroceder", { method: "PATCH" });
 }
 
 export function deletePedido(id) {
-  return request('/pedidos/' + id, { method: 'DELETE' });
+  return request("/pedidos/" + id, { method: "DELETE" });
 }
 
-export async function exportCSV(id) {
-  const res = await fetch(API_BASE + '/pedidos/' + id + '/csv', { headers: headers() });
-  if (!res.ok) throw new Error('Error al exportar');
+export async function exportExcel(id) {
+  const res = await fetch(API_BASE + "/pedidos/" + id + "/export/excel", {
+    headers: headers(),
+  });
+  if (!res.ok) throw new Error("Error al exportar");
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
+  const a = document.createElement("a");
   a.href = url;
-  a.download = 'pedido.csv';
+  a.download = "pedido_" + id + ".xlsx";
   a.click();
   URL.revokeObjectURL(url);
+}
+
+// ── PDF ──────────────────────────────────────────────────────
+
+export async function getPDFSignedUrl(pedidoId) {
+  const data = await request("/pedidos/" + pedidoId + "/pdf");
+  // Backend returns { path, signedURL } or { signedUrl }
+  return data.signedURL || data.signedUrl || data.signed_url || null;
+}
+
+export function getPDFPreviewUrl(pedidoId) {
+  const token = getStoredToken();
+  // Fetch from the backend returning raw image, we can just use the absolute path 
+  // with token query param if the backend supports it, but since backend uses Authorization header
+  // we must fetch it and create an object URL.
+  return fetch(API_BASE + "/pedidos/" + pedidoId + "/pdf-preview", {
+    headers: { Authorization: "Bearer " + token }
+  })
+    .then(res => res.ok ? res.blob() : Promise.reject())
+    .then(blob => URL.createObjectURL(blob));
+}
+
+// ── Firma ───────────────────────────────────────────────────
+
+export function firmarPedido(pedidoId, signatureBase64) {
+  return request("/pedidos/" + pedidoId + "/firma", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ firma: signatureBase64 }),
+  });
 }
 
 // ── Productos ────────────────────────────────────────────────
 
 export function fetchProductos(pedidoId) {
-  return request('/pedidos/' + pedidoId + '/productos');
+  return request("/pedidos/" + pedidoId + "/productos");
 }
 
-export function addProducto(pedidoId, data) {
-  return request('/pedidos/' + pedidoId + '/productos', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+export function addProducto(pedidoId, nombreProducto, cantidad) {
+  return request("/pedido-productos", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      pedido_id: pedidoId,
+      nombre_producto: nombreProducto,
+      cantidad: cantidad,
+    }),
+  });
+}
+
+export function updateProducto(productoId, data) {
+  return request("/pedido-productos/" + productoId, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
 }
 
-export function updateProductoCantidad(pedidoId, productoId, cantidad_preparada) {
-  return request('/pedidos/' + pedidoId + '/productos/' + productoId, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ cantidad_preparada }),
-  });
-}
-
-export function deleteProducto(pedidoId, productoId) {
-  return request('/pedidos/' + pedidoId + '/productos/' + productoId, { method: 'DELETE' });
-}
-
-// ── PDF ──────────────────────────────────────────────────────
-
-export function uploadPDF(pedidoId, file) {
-  const formData = new FormData();
-  formData.append('file', file);
-  return request('/archivos/pedidos/' + pedidoId + '/pdf', {
-    method: 'POST',
-    body: formData,
-  });
-}
-
-export function getPDFUrl(pedidoId) {
-  return API_BASE + '/archivos/pedidos/' + pedidoId + '/pdf';
+export function deleteProducto(productoId) {
+  return request("/pedido-productos/" + productoId, { method: "DELETE" });
 }
 
 // ── Usuarios ─────────────────────────────────────────────────
 
 export function fetchUsuarios() {
-  return request('/usuarios/');
+  return request("/usuarios").then((data) => data.usuarios || data);
 }
 
 export function createUsuario(data) {
-  return request('/usuarios/', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
+  return request("/usuarios", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      email: data.email,
+      nombre: data.nombre,
+      rol: data.rol,
+    }),
   });
 }
 
 export function updateUsuario(id, data) {
-  return request('/usuarios/' + id, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+  return request("/usuarios/" + id, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
 }
 
-// ── Log ──────────────────────────────────────────────────────
-
-export function fetchLog(tipo) {
-  const qs = tipo ? '?tipo=' + tipo : '';
-  return request('/usuarios/log' + qs);
+// AÑADE ESTA FUNCIÓN AQUÍ ABAJO:
+export function deleteUsuario(id) {
+  return request("/usuarios/" + id, {
+    method: "DELETE",
+  });
 }

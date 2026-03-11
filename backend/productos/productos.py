@@ -11,7 +11,12 @@
 import os
 from flask import request, jsonify, Blueprint
 from supabase import create_client, Client
+from database.supabase_client import supabase
+from database.supabase_client_admin import supabase_admin
 from dotenv import load_dotenv
+from auth.jwt_handler import requiere_autenticacion, requiere_rol
+from utils.error_handler import respuesta_error
+from utils.validators import validar_cantidad
 
 load_dotenv()
 
@@ -41,75 +46,102 @@ def get_supabase_client(token):
 
 # 1. Listar productos de un pedido (GET). Depende del rol y el estado del pedido (RLS) el mostrar o no los productos. Si el usuario no tiene permiso, la respuesta será una lista vacía o un error de autorización, dependiendo de cómo estén configuradas las políticas en Supabase.
 @productos_bp.route("/api/pedidos/<pedido_id>/productos", methods=['GET'])
+@requiere_autenticacion
 def listar_productos(pedido_id):
     try:
 
-        #Obtenemos el token de Authorization
-        token = request.headers.get("Authorization").replace("Bearer ", "")
+        # Ejecutamos la consulta
+        response = supabase_admin.table("pedido_productos").select("*").eq("pedido_id", pedido_id).execute()
 
-        #Creamos el cliente Supabase con ese token
-        sb = get_supabase_client(token)
-
-        # Consultamos la tabla 'pedido_productos', filtrando por el pedido correspondiente
-        response = sb.table("pedido_productos").select("*").eq("pedido_id", pedido_id).execute()
-
-        #Devolvemos la lista d eproductos en formato JSON
         return jsonify(response.data), 200
-    
+
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        print(f"ERROR CRÍTICO EN GET: {str(e)}")
+        return respuesta_error(str(e), 500)
 
 # 2. Añadir un producto a un pedido (POST). Solo el rol de oficina (controlado por Supabase RLS).
 @productos_bp.route('/api/pedido-productos', methods=['POST'])
+@requiere_rol(["oficina", "almacen", "logistica", "admin"])
 def añadir_producto():
     try:
 
         #Obtenemos el token de Authorization
-        token = request.headers.get("Authorization").replace("Bearer ", "")
+        # token = request.headers.get("Authorization").replace("Bearer ", "")
 
-        #Creamos el cliente Supabase con ese token
-        sb = get_supabase_client(token)
+        # #Creamos el cliente Supabase con ese token
+        # sb = get_supabase_client(token)
 
         #Datos enviados en el cuerpo de la solicitud (JSON)
         datos = request.json
 
+        if not validar_cantidad(datos['cantidad']):
+            return respuesta_error("Cantidad inválida. Debe ser mayor que 0", 400)
+            
         # Insertamos los datos en la tabla 'pedido_productos'
         nueva_fila = {
             "pedido_id": datos['pedido_id'],
             "nombre_producto": datos['nombre_producto'],
             "cantidad": datos['cantidad']
         }
-        response = sb.table("pedido_productos").insert(nueva_fila).execute()
+        response = supabase.table("pedido_productos").insert(nueva_fila).execute()
 
         #Devolvemos la nueva fila insertada en formato JSON
         return jsonify(response.data), 201
     except Exception as e:
-        return jsonify({"error": str(e)}), 400
+        return respuesta_error(str(e), 400)
 
 
 
 
 # 3. Actualizar un producto de un pedido (PUT). Solo el rol de almacén y logística (estados 0 y 1, todo controlado por Supabase RLS).
 @productos_bp.route('/api/pedido-productos/<producto_id>', methods=['PUT'])
+@requiere_rol(["oficina","almacen", "logistica", "admin"])
 def actualizar_producto(producto_id):
+    try:
+        datos = request.json
+        
+        # 1. Construir el payload dinámicamente (solo lo que viene en el JSON)
+        payload = {}
+        if "nombre_producto" in datos:
+            payload["nombre_producto"] = str(datos["nombre_producto"])
+        if "cantidad" in datos:
+            payload["cantidad"] = float(str(datos["cantidad"]).replace(",", "."))
+        if "precio" in datos:
+            payload["precio"] = float(str(datos["precio"]).replace(",", "."))
+
+        # 2. Ejecutar con el cliente global para asegurar la escritura
+        response = supabase.table("pedido_productos").update(payload).eq("id", producto_id).execute()
+        
+        # 3. Verificación de seguridad
+        if not response.data:
+            # Si no hay data, puede que el ID sea incorrecto o el RLS bloquee el retorno
+            return jsonify({"error": "No se pudo encontrar el producto actualizado"}), 404
+
+        return jsonify(response.data), 200
+    except Exception as e:
+        return respuesta_error(str(e), 400)
+
+
+# Eliminar un producto de un pedido (DELETE). Solo el rol de oficina (controlado por Supabase RLS).
+@productos_bp.route('/api/pedido-productos/<producto_id>', methods=['DELETE'])
+@requiere_rol(["oficina", "almacen", "logistica", "admin"])
+def eliminar_producto(producto_id):
     try:
 
         #Obtenemos el token de Authorization
-        token = request.headers.get("Authorization").replace("Bearer ", "")
+        # token = request.headers.get("Authorization").replace("Bearer ", "")
 
-        #Creamos el cliente Supabase con ese token
-        sb = get_supabase_client(token)
+        # #Creamos el cliente Supabase con ese token
+        # sb = get_supabase_client(token)
 
-        #Datos enviados en el cuerpo de la solicitud (JSON)
-        datos = request.json
+        # Eliminamos la fila de la tabla 'pedido_productos'
+        response = supabase.table("pedido_productos").delete().eq("id", producto_id).execute()
 
-        # Actualizamos los datos en la tabla 'pedido_productos'
-        response = sb.table("pedido_productos").update({
-            "nombre_producto": datos.get("nombre_producto"),
-            "cantidad": datos.get("cantidad")
-            }).eq("id", producto_id).execute()
-
-        #Devolvemos la fila actualizada en formato JSON
-        return jsonify(response.data), 200
+        # Si no se eliminó ningún registro, significa que el producto no existe o ya fue eliminado. Devolvemos un mensaje de error.
+        if not response.data:
+            return respuesta_error("Producto no encontrado o ya eliminado", 404)
+        
+        #En el caso de éxito, devolvemos un mensaje de confirmación
+        return jsonify({"message": "Producto eliminado correctamente"}), 200
     except Exception as e:
-        return jsonify({"error": str(e)}), 400
+        return respuesta_error(str(e), 400)

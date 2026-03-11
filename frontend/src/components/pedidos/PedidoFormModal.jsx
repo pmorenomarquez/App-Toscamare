@@ -1,154 +1,97 @@
-import { useState, useEffect, useContext, useRef } from 'react';
+import { useState, useContext, useRef } from 'react';
 import { AppContext } from '@/context/AppContext';
-import { Modal, Btn, Input, Select, TextArea, SVG } from '@/components/ui';
+import { Modal, Btn, Input, SVG } from '@/components/ui';
 import * as api from '@/utils/api';
 
-export default function PedidoFormModal({ open, onClose, editPedido }) {
+export default function PedidoFormModal({ open, onClose }) {
   const { showToast, loadPedidos } = useContext(AppContext);
-  const [form, setForm] = useState({ cliente:'', direccion:'', telefono:'', prioridad:'media', notas:'' });
-  const [productos, setProductos] = useState([{ nombre:'', cantidad_solicitada:'', unidad:'uds' }]);
+  const [clienteNombre, setClienteNombre] = useState('');
   const [pdfFile, setPdfFile] = useState(null);
   const [saving, setSaving] = useState(false);
   const fileRef = useRef(null);
 
-  useEffect(() => {
-    if (editPedido) {
-      setForm({ cliente:editPedido.cliente, direccion:editPedido.direccion, telefono:editPedido.telefono||'', prioridad:editPedido.prioridad, notas:editPedido.notas||'' });
-      // Load existing products
-      api.fetchProductos(editPedido.id).then(setProductos).catch(() => {});
-    } else {
-      setForm({ cliente:'', direccion:'', telefono:'', prioridad:'media', notas:'' });
-      setProductos([{ nombre:'', cantidad_solicitada:'', unidad:'uds' }]);
-    }
+  const handleClose = () => {
+    setClienteNombre('');
     setPdfFile(null);
-  }, [editPedido, open]);
-
-  const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }));
-
-  const updateProd = (idx, key, val) => {
-    setProductos(prev => prev.map((p, i) => i === idx ? { ...p, [key]: val } : p));
-  };
-
-  const addProdRow = () => setProductos(prev => [...prev, { nombre:'', cantidad_solicitada:'', unidad:'uds' }]);
-
-  const removeProdRow = (idx) => {
-    if (productos.length <= 1) return;
-    setProductos(prev => prev.filter((_, i) => i !== idx));
+    if (fileRef.current) fileRef.current.value = '';
+    onClose();
   };
 
   const handleSave = async () => {
-    if (!form.cliente || !form.direccion) { showToast('Completa cliente y dirección', 'error'); return; }
-    const validProds = productos.filter(p => p.nombre && p.cantidad_solicitada);
-    if (validProds.length === 0 && !editPedido) { showToast('Añade al menos un producto', 'error'); return; }
+    if (!clienteNombre.trim()) { showToast('El nombre del cliente es obligatorio', 'error'); return; }
+    if (!pdfFile) { showToast('El PDF del pedido es obligatorio', 'error'); return; }
 
     setSaving(true);
+    showToast('Subiendo PDF y procesando OCR... esto puede tardar', 'info');
     try {
-      if (editPedido) {
-        await api.updatePedido(editPedido.id, form);
-        showToast(editPedido.codigo + ' actualizado');
-      } else {
-        const pedido = await api.createPedido({
-          ...form,
-          productos: validProds.map(p => ({ nombre: p.nombre, cantidad_solicitada: Number(p.cantidad_solicitada), unidad: p.unidad })),
-        });
-        // Upload PDF if selected
-        if (pdfFile && pedido.id) {
-          await api.uploadPDF(pedido.id, pdfFile);
-        }
-        showToast('Pedido ' + pedido.codigo + ' creado');
-      }
+      await api.createPedido(clienteNombre.trim(), pdfFile);
+      showToast('Pedido creado con productos extraídos del PDF');
       await loadPedidos();
-      onClose();
+      handleClose();
     } catch (e) {
-      showToast(e.message, 'error');
+      showToast('Error: ' + e.message, 'error');
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <Modal open={open} onClose={onClose} title={editPedido ? 'Editar ' + editPedido.codigo : 'Nuevo Pedido'} wide>
-      <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
-          <Input label="CLIENTE *" placeholder="Nombre del cliente" value={form.cliente} onChange={set('cliente')} />
-          <Input label="TELÉFONO" placeholder="555-0000" value={form.telefono} onChange={set('telefono')} />
-        </div>
-        <Input label="DIRECCIÓN *" placeholder="Dirección completa" value={form.direccion} onChange={set('direccion')} />
+    <Modal open={open} onClose={handleClose} title="Nuevo Pedido">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+        <Input
+          label="CLIENTE *"
+          placeholder="Nombre del cliente"
+          value={clienteNombre}
+          onChange={e => setClienteNombre(e.target.value)}
+        />
 
         {/* PDF Upload */}
         <div>
-          <span style={{ fontSize:11, fontWeight:600, color:'var(--text-4)', textTransform:'uppercase', letterSpacing:'.04em', display:'block', marginBottom:6 }}>
-            PDF del pedido
+          <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-4)', textTransform: 'uppercase', letterSpacing: '.04em', display: 'block', marginBottom: 6 }}>
+            PDF del pedido *
           </span>
-          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-            <input ref={fileRef} type="file" accept=".pdf" style={{ display:'none' }}
+          <div style={{
+            padding: 20, borderRadius: 'var(--r2)', border: '2px dashed var(--border-2)',
+            background: 'var(--bg-1)', textAlign: 'center', cursor: 'pointer',
+            transition: '.15s var(--ease)',
+          }}
+            onClick={() => fileRef.current?.click()}
+            onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--accent)'}
+            onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border-2)'}>
+            <input ref={fileRef} type="file" accept=".pdf" style={{ display: 'none' }}
               onChange={e => setPdfFile(e.target.files[0] || null)} />
-            <Btn variant="secondary" size="sm" icon="upload" onClick={() => fileRef.current?.click()}>
-              {pdfFile ? pdfFile.name : (editPedido?.pdf_nombre || 'Seleccionar PDF')}
-            </Btn>
-            {pdfFile && <Btn variant="ghost" size="sm" icon="x" onClick={() => { setPdfFile(null); if(fileRef.current) fileRef.current.value=''; }} />}
+            {saving ? (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '10px 0' }}>
+                <div className="anim-spin" style={{ display: 'flex', marginBottom: 16 }}>
+                  <SVG name="loader" size={32} color="var(--accent)" />
+                </div>
+                <p style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-1)' }}>Procesando documento...</p>
+                <p style={{ fontSize: 12, color: 'var(--text-4)', marginTop: 4 }}>La IA está extrayendo los productos del PDF. Por favor, espera.</p>
+              </div>
+            ) : pdfFile ? (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+                <SVG name="file" size={18} color="var(--accent)" />
+                <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--accent)' }}>{pdfFile.name}</span>
+                <Btn variant="ghost" size="sm" icon="x" onClick={(e) => { e.stopPropagation(); setPdfFile(null); if (fileRef.current) fileRef.current.value = ''; }} />
+              </div>
+            ) : (
+              <div>
+                <SVG name="upload" size={24} color="var(--text-4)" />
+                <p style={{ fontSize: 13, color: 'var(--text-3)', marginTop: 8 }}>
+                  Haz clic para seleccionar el PDF del albarán
+                </p>
+                <p style={{ fontSize: 11, color: 'var(--text-4)', marginTop: 4 }}>
+                  Los productos se extraerán automáticamente por OCR
+                </p>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Productos */}
-        {!editPedido && <>
-          <span style={{ fontSize:11, fontWeight:600, color:'var(--text-4)', textTransform:'uppercase', letterSpacing:'.04em' }}>
-            Productos *
-          </span>
-          <div style={{ background:'var(--bg-1)', border:'1px solid var(--border-1)', borderRadius:'var(--r2)', overflow:'hidden' }}>
-            <table style={{ width:'100%', borderCollapse:'collapse' }}>
-              <thead><tr>
-                {['Producto','Cantidad','Unidad',''].map(h => (
-                  <th key={h} style={{ padding:'8px 12px', textAlign:'left', fontSize:10, fontWeight:600, color:'var(--text-4)',
-                    textTransform:'uppercase', letterSpacing:'.04em', borderBottom:'1px solid var(--border-1)', background:'var(--bg-0)' }}>{h}</th>
-                ))}
-              </tr></thead>
-              <tbody>
-                {productos.map((p, i) => (
-                  <tr key={i} style={{ borderBottom: i < productos.length-1 ? '1px solid var(--border-1)' : 'none' }}>
-                    <td style={{ padding:'6px 8px' }}>
-                      <input value={p.nombre} onChange={e => updateProd(i, 'nombre', e.target.value)} placeholder="Nombre del producto"
-                        style={{ width:'100%', padding:'6px 8px', background:'var(--bg-2)', border:'1px solid var(--border-2)',
-                          borderRadius:4, color:'var(--text-1)', fontSize:13 }} />
-                    </td>
-                    <td style={{ padding:'6px 8px', width:100 }}>
-                      <input type="number" value={p.cantidad_solicitada} onChange={e => updateProd(i, 'cantidad_solicitada', e.target.value)}
-                        placeholder="0" min="0" step="0.01"
-                        style={{ width:'100%', padding:'6px 8px', background:'var(--bg-2)', border:'1px solid var(--border-2)',
-                          borderRadius:4, color:'var(--text-1)', fontSize:13 }} />
-                    </td>
-                    <td style={{ padding:'6px 8px', width:90 }}>
-                      <select value={p.unidad} onChange={e => updateProd(i, 'unidad', e.target.value)}
-                        style={{ width:'100%', padding:'6px 8px', background:'var(--bg-2)', border:'1px solid var(--border-2)',
-                          borderRadius:4, color:'var(--text-1)', fontSize:13 }}>
-                        <option value="uds">uds</option>
-                        <option value="kg">kg</option>
-                        <option value="cajas">cajas</option>
-                        <option value="pallets">pallets</option>
-                        <option value="litros">litros</option>
-                      </select>
-                    </td>
-                    <td style={{ padding:'6px 8px', width:40 }}>
-                      {productos.length > 1 && <Btn variant="ghost" size="sm" icon="x" danger onClick={() => removeProdRow(i)} />}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <Btn variant="secondary" size="sm" icon="plus" onClick={addProdRow}>Añadir producto</Btn>
-        </>}
-
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
-          <Select label="PRIORIDAD" value={form.prioridad} onChange={set('prioridad')} options={[
-            {value:'urgente',label:'Urgente'},{value:'alta',label:'Alta'},{value:'media',label:'Media'},{value:'baja',label:'Baja'}
-          ]} />
-          <TextArea label="NOTAS" placeholder="Instrucciones especiales..." value={form.notas} onChange={set('notas')} style={{ minHeight:0 }} />
-        </div>
-        <div style={{ display:'flex', justifyContent:'flex-end', gap:10, marginTop:8 }}>
-          <Btn variant="secondary" onClick={onClose}>Cancelar</Btn>
-          <Btn variant="primary" icon={editPedido ? 'edit' : 'plus'} disabled={saving} onClick={handleSave}>
-            {saving ? 'Guardando...' : (editPedido ? 'Guardar Cambios' : 'Crear Pedido')}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 8 }}>
+          <Btn variant="secondary" onClick={handleClose} disabled={saving}>Cancelar</Btn>
+          <Btn variant="primary" icon="plus" disabled={saving} onClick={handleSave}>
+            {saving ? 'Procesando PDF...' : 'Crear Pedido'}
           </Btn>
         </div>
       </div>
